@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "net/shelly_client.h"
+#include "safety/filter_calibration.h"
 #include "schedule/co2_schedule.h"
 #include "storage/aquapilot_settings.h"
 
@@ -15,6 +16,10 @@ static int8_t s_last_desired = -1;
 
 static void sync_co2_plug(void)
 {
+    if (filter_calibration_is_active()) {
+        return;
+    }
+
     if (!co2_schedule_clock_ready()) {
         return;
     }

@@ -6,12 +6,14 @@
 #include "freertos/task.h"
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
+#include "safety/filter_calibration.h"
 #include "storage/aquapilot_settings.h"
 
 static const char *TAG = "filter_power";
 
-#define MONITOR_INTERVAL_MS 2000
-#define ALARM_DELAY_US      (60LL * 1000000LL)
+#define MONITOR_INTERVAL_MS  2000
+#define ALARM_DELAY_US       (60LL * 1000000LL)
+#define READ_FAIL_ZERO_COUNT 3
 
 static volatile bool s_alarm_active;
 static volatile bool s_watts_valid;
@@ -20,30 +22,43 @@ static volatile bool s_filter_on;
 static volatile uint16_t s_cached_watts;
 static int64_t s_alarm_condition_since_us;
 static uint8_t s_on_streak;
-static uint8_t s_off_streak;
+static uint8_t s_read_fail_streak;
+static uint8_t s_high_watts_streak;
 
-#define FILTER_ON_DEBOUNCE  2
-#define FILTER_OFF_DEBOUNCE 2
+#define FILTER_ON_DEBOUNCE 2
+
+static void set_filter_off(void)
+{
+    s_on_streak = 0;
+    s_filter_on = false;
+}
 
 static void update_filter_on(bool raw_on)
 {
     if (raw_on) {
         s_on_streak++;
-        s_off_streak = 0;
         if (s_on_streak >= FILTER_ON_DEBOUNCE) {
             s_filter_on = true;
         }
     } else {
-        s_off_streak++;
-        s_on_streak = 0;
-        if (s_off_streak >= FILTER_OFF_DEBOUNCE) {
-            s_filter_on = false;
-        }
+        set_filter_off();
     }
+}
+
+static void invalidate_reading(void)
+{
+    s_watts_valid = false;
+    s_read_fail_streak = 0;
+    s_high_watts_streak = 0;
+    set_filter_off();
 }
 
 static void refresh_watts(void)
 {
+    if (filter_calibration_is_active()) {
+        return;
+    }
+
     if (!aquapilot_wifi_is_connected()) {
         s_plug_online = false;
         return;
@@ -52,20 +67,40 @@ static void refresh_watts(void)
     if (!aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_FILTER)) {
         s_plug_online = false;
         s_watts_valid = false;
-        s_on_streak = 0;
-        s_off_streak = 0;
-        s_filter_on = false;
+        s_read_fail_streak = 0;
+        invalidate_reading();
         return;
     }
 
     uint16_t watts = 0;
     if (shelly_client_get_plug_power_watts(AQUAPILOT_SHELLY_FILTER, &watts) == ESP_OK) {
-        s_cached_watts = watts;
-        s_watts_valid = true;
         s_plug_online = true;
-        update_filter_on(watts > FILTER_MIN_RUNNING_WATTS);
-    } else {
-        s_plug_online = false;
+        s_read_fail_streak = 0;
+
+        if (watts <= FILTER_MIN_RUNNING_WATTS) {
+            s_high_watts_streak = 0;
+            s_cached_watts = watts;
+            s_watts_valid = true;
+            set_filter_off();
+            ESP_LOGI(TAG, "filter watts %u", (unsigned)watts);
+            return;
+        }
+
+        s_high_watts_streak++;
+        if (s_high_watts_streak >= 2) {
+            s_cached_watts = watts;
+            s_watts_valid = true;
+            update_filter_on(true);
+            ESP_LOGI(TAG, "filter watts %u", (unsigned)watts);
+        }
+        return;
+    }
+
+    s_plug_online = false;
+    if (++s_read_fail_streak >= READ_FAIL_ZERO_COUNT) {
+        s_cached_watts = 0;
+        s_watts_valid = true;
+        set_filter_off();
     }
 }
 
@@ -148,8 +183,6 @@ static bool evaluate_alarm(void)
 static void monitor_task(void *arg)
 {
     (void)arg;
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
 
     while (true) {
         refresh_watts();

@@ -13,3 +13,11 @@ esp_err_t shelly_client_get_plug_power_watts(aquapilot_shelly_plug_t plug, uint1
 
 /** Turn off the configured heater Shelly plug (heater safety cutoff). */
 esp_err_t shelly_client_heater_plug_off(void);
+
+/**
+ * During filter calibration, block all non-filter Shelly traffic and disable
+ * inter-request pacing so calibration can poll every 2 s unimpeded.
+ */
+void shelly_client_set_exclusive_filter_mode(bool enabled);
+
+bool shelly_client_is_exclusive_filter_mode(void);

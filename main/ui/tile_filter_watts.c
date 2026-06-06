@@ -286,5 +286,5 @@ void tile_filter_watts_update(tile_filter_watts_t *tile)
 
 bool tile_filter_watts_needs_fast_update(void)
 {
-    return filter_power_monitor_is_calibrated() && filter_power_monitor_is_filter_on();
+    return filter_power_monitor_is_calibrated();
 }

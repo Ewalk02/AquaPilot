@@ -6,12 +6,14 @@
 #include "freertos/task.h"
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
+#include "safety/filter_calibration.h"
 #include "schedule/co2_schedule.h"
 #include "storage/aquapilot_settings.h"
 
 static const char *TAG = "co2_power";
 
-#define MONITOR_INTERVAL_MS 2000
+#define MONITOR_INTERVAL_MS 5000
+#define POLL_PHASE_MS       1700
 #define ALARM_DELAY_US      (60LL * 1000000LL)
 
 static volatile bool s_alarm_active;
@@ -22,6 +24,10 @@ static int64_t s_alarm_condition_since_us;
 
 static void refresh_watts(void)
 {
+    if (filter_calibration_is_active()) {
+        return;
+    }
+
     if (!aquapilot_wifi_is_connected()) {
         s_plug_online = false;
         return;
@@ -81,7 +87,7 @@ static void monitor_task(void *arg)
 {
     (void)arg;
 
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    vTaskDelay(pdMS_TO_TICKS(POLL_PHASE_MS));
 
     while (true) {
         refresh_watts();

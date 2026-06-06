@@ -9,7 +9,8 @@
 
 static const char *TAG = "filter_cal";
 
-#define WAIT_POWER_TIMEOUT_MS (120 * 1000)
+#define WAIT_POWER_TIMEOUT_MS   (120 * 1000)
+#define CAL_START_SETTLE_MS     500
 
 static volatile filter_cal_state_t s_state = FILTER_CAL_IDLE;
 static volatile bool s_cancel_requested;
@@ -20,6 +21,13 @@ static volatile float s_running_average;
 static volatile float s_result_baseline;
 static TaskHandle_t s_task_handle;
 
+static void finish_calibration_task(void)
+{
+    shelly_client_set_exclusive_filter_mode(false);
+    s_task_handle = NULL;
+    vTaskDelete(NULL);
+}
+
 static bool read_filter_watts(uint16_t *watts)
 {
     if (watts == NULL) {
@@ -27,14 +35,22 @@ static bool read_filter_watts(uint16_t *watts)
     }
 
     if (!aquapilot_wifi_is_connected()) {
+        ESP_LOGW(TAG, "Wi-Fi not connected");
         return false;
     }
 
     if (!aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_FILTER)) {
+        ESP_LOGW(TAG, "filter Shelly address not configured");
         return false;
     }
 
-    return shelly_client_get_plug_power_watts(AQUAPILOT_SHELLY_FILTER, watts) == ESP_OK;
+    const esp_err_t err = shelly_client_get_plug_power_watts(AQUAPILOT_SHELLY_FILTER, watts);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "filter Shelly read failed: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    return true;
 }
 
 static void reset_live_readings(void)
@@ -56,21 +72,22 @@ static void calibration_task(void *arg)
 {
     (void)arg;
 
+    shelly_client_set_exclusive_filter_mode(true);
+    vTaskDelay(pdMS_TO_TICKS(CAL_START_SETTLE_MS));
+
     reset_live_readings();
     s_cancel_requested = false;
     s_state = FILTER_CAL_WAITING_POWER;
 
     if (!aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_FILTER)) {
         s_state = FILTER_CAL_FAILED;
-        s_task_handle = NULL;
-        vTaskDelete(NULL);
+        finish_calibration_task();
         return;
     }
 
     if (!aquapilot_wifi_is_connected()) {
         s_state = FILTER_CAL_FAILED;
-        s_task_handle = NULL;
-        vTaskDelete(NULL);
+        finish_calibration_task();
         return;
     }
 
@@ -81,8 +98,7 @@ static void calibration_task(void *arg)
     while (xTaskGetTickCount() < wait_deadline) {
         if (s_cancel_requested) {
             s_state = FILTER_CAL_IDLE;
-            s_task_handle = NULL;
-            vTaskDelete(NULL);
+            finish_calibration_task();
             return;
         }
 
@@ -102,15 +118,13 @@ static void calibration_task(void *arg)
 
     if (s_cancel_requested) {
         s_state = FILTER_CAL_IDLE;
-        s_task_handle = NULL;
-        vTaskDelete(NULL);
+        finish_calibration_task();
         return;
     }
 
     if (!power_detected) {
         s_state = FILTER_CAL_FAILED;
-        s_task_handle = NULL;
-        vTaskDelete(NULL);
+        finish_calibration_task();
         return;
     }
 
@@ -122,8 +136,7 @@ static void calibration_task(void *arg)
     for (int sample = 0; sample < FILTER_CALIBRATION_SAMPLE_COUNT; sample++) {
         if (s_cancel_requested) {
             s_state = FILTER_CAL_IDLE;
-            s_task_handle = NULL;
-            vTaskDelete(NULL);
+            finish_calibration_task();
             return;
         }
 
@@ -143,16 +156,14 @@ static void calibration_task(void *arg)
 
     if (sample_count == 0) {
         s_state = FILTER_CAL_FAILED;
-        s_task_handle = NULL;
-        vTaskDelete(NULL);
+        finish_calibration_task();
         return;
     }
 
     const float average = (float)sample_sum / (float)sample_count;
     if (!aquapilot_settings_set_filter_baseline_watts(average)) {
         s_state = FILTER_CAL_FAILED;
-        s_task_handle = NULL;
-        vTaskDelete(NULL);
+        finish_calibration_task();
         return;
     }
 
@@ -162,8 +173,7 @@ static void calibration_task(void *arg)
     s_state = FILTER_CAL_COMPLETE;
     ESP_LOGI(TAG, "calibration complete: %.1f W (%u samples)", average, (unsigned)sample_count);
 
-    s_task_handle = NULL;
-    vTaskDelete(NULL);
+    finish_calibration_task();
 }
 
 esp_err_t filter_calibration_init(void)
@@ -178,10 +188,14 @@ void filter_calibration_start(void)
         return;
     }
 
-    if (xTaskCreate(calibration_task, "filter_cal", 8192, NULL, 4, &s_task_handle) != pdPASS) {
+    s_state = FILTER_CAL_WAITING_POWER;
+    s_cancel_requested = false;
+
+    if (xTaskCreate(calibration_task, "filter_cal", 8192, NULL, 5, &s_task_handle) != pdPASS) {
         ESP_LOGE(TAG, "failed to create calibration task");
         s_state = FILTER_CAL_FAILED;
         s_task_handle = NULL;
+        shelly_client_set_exclusive_filter_mode(false);
     }
 }
 
@@ -190,6 +204,7 @@ void filter_calibration_cancel(void)
     if (s_task_handle == NULL) {
         s_state = FILTER_CAL_IDLE;
         reset_live_readings();
+        shelly_client_set_exclusive_filter_mode(false);
         return;
     }
 

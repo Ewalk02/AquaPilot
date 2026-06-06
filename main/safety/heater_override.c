@@ -7,19 +7,27 @@
 #include "heater/heater_service.h"
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
+#include "safety/filter_calibration.h"
 #include "storage/aquapilot_settings.h"
 
 static const char *TAG = "heater_override";
 
-#define MONITOR_INTERVAL_MS      2000
+#define MONITOR_INTERVAL_MS      5000
+#define POLL_PHASE_MS            3400
 #define OFF_RETRY_INTERVAL_MS    30000
 
 static volatile bool s_alarm_active;
 static volatile heater_alarm_reason_t s_alarm_reason;
 static int64_t s_last_off_attempt_ms;
+static uint16_t s_cached_shelly_watts;
+static bool s_cached_shelly_valid;
 
-static bool shelly_mismatch_active(void)
+static bool refresh_heater_shelly_watts(void)
 {
+    if (filter_calibration_is_active()) {
+        return false;
+    }
+
     if (!heater_service_is_heater_off()) {
         return false;
     }
@@ -37,7 +45,14 @@ static bool shelly_mismatch_active(void)
         return false;
     }
 
-    return shelly_watts > HEATER_OVERRIDE_WATTS_THRESHOLD;
+    s_cached_shelly_watts = shelly_watts;
+    s_cached_shelly_valid = true;
+    return true;
+}
+
+static bool shelly_mismatch_active(void)
+{
+    return s_cached_shelly_valid && s_cached_shelly_watts > HEATER_OVERRIDE_WATTS_THRESHOLD;
 }
 
 static bool evaluate_temp_alarm(void)
@@ -96,6 +111,10 @@ static bool should_turn_off_shelly(void)
 
 static void maybe_turn_off_heater_plug(void)
 {
+    if (filter_calibration_is_active()) {
+        return;
+    }
+
     const int64_t now_ms = esp_timer_get_time() / 1000;
     if (s_last_off_attempt_ms != 0 && (now_ms - s_last_off_attempt_ms) < OFF_RETRY_INTERVAL_MS) {
         return;
@@ -118,9 +137,12 @@ static void monitor_task(void *arg)
 {
     (void)arg;
 
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(POLL_PHASE_MS));
 
     while (true) {
+        s_cached_shelly_valid = false;
+        (void)refresh_heater_shelly_watts();
+
         heater_alarm_reason_t reason = HEATER_ALARM_NONE;
 
         if (evaluate_temp_alarm()) {
