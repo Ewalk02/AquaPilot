@@ -7,6 +7,7 @@
 #include "net/wifi_manager.h"
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
+#include "feeder/feeder_client.h"
 
 #define HEATER_RECONNECT_WINDOW_US (45 * 1000 * 1000ULL)
 
@@ -144,6 +145,8 @@ bool connection_status_is_on(connection_id_t id)
         return filter_power_monitor_plug_is_online();
     case CONNECTION_LIGHT:
         return light_connection_led();
+    case CONNECTION_FEEDER:
+        return feeder_client_is_online();
     default:
         return false;
     }
@@ -164,6 +167,8 @@ const char *connection_status_label(connection_id_t id)
         return "Filter";
     case CONNECTION_LIGHT:
         return "Light";
+    case CONNECTION_FEEDER:
+        return "Feeder";
     default:
         return "?";
     }

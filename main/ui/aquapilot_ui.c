@@ -11,5 +11,5 @@ void aquapilot_ui_init(void)
     screen_settings_create();
     screen_wifi_create();
     screen_main_create();
-    ESP_LOGI(TAG, "dashboard (3x3 grid) and settings ready");
+    ESP_LOGI(TAG, "dashboard grid and settings ready");
 }

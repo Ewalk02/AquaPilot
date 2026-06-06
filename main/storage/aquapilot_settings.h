@@ -7,6 +7,7 @@
 void aquapilot_settings_init(void);
 
 #define AQUAPILOT_SHELLY_ADDR_MAX 64
+#define AQUAPILOT_FEEDER_HOST_MAX 64
 #define AQUAPILOT_TIMEZONE_MAX    32
 
 typedef enum {
@@ -42,6 +43,10 @@ bool aquapilot_settings_has_shelly_address(aquapilot_shelly_plug_t plug);
 bool aquapilot_settings_set_shelly_address(aquapilot_shelly_plug_t plug, const char *address);
 bool aquapilot_settings_set_shelly_addresses(const char *heater, const char *filter, const char *co2);
 
+bool aquapilot_settings_get_feeder_host(char *buf, size_t buf_len);
+bool aquapilot_settings_has_feeder_host(void);
+bool aquapilot_settings_set_feeder_host(const char *host);
+
 bool aquapilot_settings_get_heater_override_enabled(bool *enabled);
 bool aquapilot_settings_set_heater_override_enabled(bool enabled);
 
@@ -53,6 +58,13 @@ bool aquapilot_settings_set_heater_shelly_power_monitor_enabled(bool enabled);
 
 bool aquapilot_settings_get_maintenance_mode_enabled(bool *enabled);
 bool aquapilot_settings_set_maintenance_mode_enabled(bool enabled);
+
+bool aquapilot_settings_get_feeder_enabled(bool *enabled);
+bool aquapilot_settings_set_feeder_enabled(bool enabled);
+bool aquapilot_settings_get_feeder_schedule(uint8_t *start_h, uint8_t *start_m, uint8_t *end_h, uint8_t *end_m,
+                                              uint8_t *times_per_day, uint16_t *amount_seconds);
+bool aquapilot_settings_set_feeder_schedule(uint8_t start_h, uint8_t start_m, uint8_t end_h, uint8_t end_m,
+                                            uint8_t times_per_day, uint16_t amount_seconds);
 
 bool aquapilot_settings_get_wifi_time_enabled(bool *enabled);
 bool aquapilot_settings_set_wifi_time_enabled(bool enabled);

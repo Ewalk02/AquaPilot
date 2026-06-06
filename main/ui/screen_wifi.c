@@ -158,6 +158,7 @@ void screen_wifi_create(void)
     lv_obj_set_style_radius(form, 12, 0);
     lv_obj_set_style_pad_all(form, 20, 0);
     lv_obj_set_flex_flow(form, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(form, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(form, 8, 0);
 
     lv_obj_t *lbl_ssid = lv_label_create(form);
@@ -166,7 +167,7 @@ void screen_wifi_create(void)
     lv_obj_set_style_text_font(lbl_ssid, &lv_font_montserrat_16, 0);
 
     s_ta_ssid = lv_textarea_create(form);
-    lv_obj_set_width(s_ta_ssid, LV_PCT(100));
+    lv_obj_set_width(s_ta_ssid, LV_PCT(50));
     lv_obj_set_height(s_ta_ssid, 48);
     lv_textarea_set_one_line(s_ta_ssid, true);
     lv_textarea_set_max_length(s_ta_ssid, AQUAPILOT_WIFI_SSID_MAX);
@@ -180,7 +181,7 @@ void screen_wifi_create(void)
     lv_obj_set_style_text_font(lbl_pass, &lv_font_montserrat_16, 0);
 
     s_ta_password = lv_textarea_create(form);
-    lv_obj_set_width(s_ta_password, LV_PCT(100));
+    lv_obj_set_width(s_ta_password, LV_PCT(50));
     lv_obj_set_height(s_ta_password, 48);
     lv_textarea_set_one_line(s_ta_password, true);
     lv_textarea_set_password_mode(s_ta_password, true);

@@ -12,6 +12,8 @@
 #include "heater/chihiros_ble.h"
 #include "heater/heater_service.h"
 #include "schedule/aquapilot_time.h"
+#include "feeder/feeder_client.h"
+#include "schedule/feeder_service.h"
 #include "timezone_options.h"
 
 #include <stdint.h>
@@ -28,7 +30,10 @@
 #define LABEL_COLOR       0x8B949E
 #define VALUE_COLOR       0xC9D1D9
 #define STATUS_COLOR      0x6E7681
-#define BTN_BG_COLOR      0x21262D
+#define BTN_BG_COLOR           0x21262D
+#define FEEDER_BTN_GREEN       0x238636
+#define FEEDER_BTN_SHADOW      0x0D1117
+#define SETTINGS_INPUT_WIDTH_PCT 50
 
 static lv_obj_t *s_hub_screen;
 static lv_obj_t *s_temp_range_screen;
@@ -37,6 +42,7 @@ static lv_obj_t *s_filter_screen;
 static lv_obj_t *s_shelly_screen;
 static lv_obj_t *s_safety_screen;
 static lv_obj_t *s_maintenance_screen;
+static lv_obj_t *s_feeder_screen;
 static lv_obj_t *s_time_screen;
 
 static lv_obj_t *s_temp_setpoint_ta;
@@ -70,6 +76,18 @@ static lv_obj_t *s_co2_power_monitor_sw;
 static lv_obj_t *s_maintenance_sw;
 static lv_obj_t *s_maintenance_status;
 static lv_timer_t *s_maintenance_ui_timer;
+static lv_obj_t *s_feeder_enabled_sw;
+static lv_obj_t *s_feeder_start_ta;
+static lv_obj_t *s_feeder_end_ta;
+static lv_obj_t *s_feeder_times_ta;
+static lv_obj_t *s_feeder_amount_ta;
+static lv_obj_t *s_feeder_host_ta;
+static lv_obj_t *s_feeder_preview;
+static lv_obj_t *s_feeder_status;
+static lv_timer_t *s_feeder_ui_timer;
+static lv_obj_t *s_feeder_keyboard;
+static lv_obj_t *s_feeder_time_keyboard;
+static lv_obj_t *s_feeder_host_keyboard;
 static lv_obj_t *s_wifi_time_sw;
 static lv_obj_t *s_tz_dd;
 static lv_obj_t *s_manual_date_ta;
@@ -100,6 +118,9 @@ static void hide_all_keyboards(void)
     hide_keyboard(s_shelly_keyboard);
     hide_keyboard(s_time_keyboard);
     hide_keyboard(s_filter_keyboard);
+    hide_keyboard(s_feeder_keyboard);
+    hide_keyboard(s_feeder_time_keyboard);
+    hide_keyboard(s_feeder_host_keyboard);
 }
 
 static const char *const s_time_kb_map[] = {
@@ -147,6 +168,46 @@ static void co2_ta_focus_cb(lv_event_t *e)
 static void attach_co2_field(lv_obj_t *ta)
 {
     lv_obj_add_event_cb(ta, co2_ta_focus_cb, LV_EVENT_FOCUSED, s_co2_keyboard);
+    lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
+}
+
+static void feeder_ta_focus_cb(lv_event_t *e)
+{
+    lv_obj_t *ta = lv_event_get_target(e);
+    lv_obj_t *keyboard = lv_event_get_user_data(e);
+    if (keyboard != NULL) {
+        lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_USER_1);
+        lv_keyboard_set_textarea(keyboard, ta);
+        lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void feeder_number_ta_focus_cb(lv_event_t *e)
+{
+    lv_obj_t *ta = lv_event_get_target(e);
+    lv_obj_t *keyboard = lv_event_get_user_data(e);
+    if (keyboard != NULL) {
+        lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_NUMBER);
+        lv_keyboard_set_textarea(keyboard, ta);
+        lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void attach_feeder_time_field(lv_obj_t *ta)
+{
+    lv_obj_add_event_cb(ta, feeder_ta_focus_cb, LV_EVENT_FOCUSED, s_feeder_time_keyboard);
+    lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
+}
+
+static void attach_feeder_number_field(lv_obj_t *ta)
+{
+    lv_obj_add_event_cb(ta, feeder_number_ta_focus_cb, LV_EVENT_FOCUSED, s_feeder_keyboard);
+    lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
+}
+
+static void attach_feeder_host_field(lv_obj_t *ta)
+{
+    lv_obj_add_event_cb(ta, ta_focus_cb, LV_EVENT_FOCUSED, s_feeder_host_keyboard);
     lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
 }
 
@@ -325,6 +386,117 @@ static void co2_refresh_fields(void)
     format_time_hhmm(off_buf, sizeof(off_buf), off_h, off_m);
     lv_textarea_set_text(s_co2_on_ta, on_buf);
     lv_textarea_set_text(s_co2_off_ta, off_buf);
+}
+
+static void feeder_show_status(const char *text)
+{
+    if (s_feeder_status != NULL && text != NULL) {
+        lv_label_set_text(s_feeder_status, text);
+    }
+}
+
+static void feeder_update_preview(void)
+{
+    if (s_feeder_preview == NULL) {
+        return;
+    }
+
+    char preview[160];
+    feeder_service_format_schedule_preview(preview, sizeof(preview));
+    lv_label_set_text(s_feeder_preview, preview);
+}
+
+static bool feeder_settings_save_from_fields(void)
+{
+    if (s_feeder_start_ta == NULL || s_feeder_end_ta == NULL || s_feeder_times_ta == NULL ||
+        s_feeder_amount_ta == NULL) {
+        return false;
+    }
+
+    uint8_t start_h = 0;
+    uint8_t start_m = 0;
+    uint8_t end_h = 0;
+    uint8_t end_m = 0;
+    if (!parse_time_hhmm(lv_textarea_get_text(s_feeder_start_ta), &start_h, &start_m) ||
+        !parse_time_hhmm(lv_textarea_get_text(s_feeder_end_ta), &end_h, &end_m)) {
+        feeder_show_status("Use HH:MM for feeding window times.");
+        return false;
+    }
+
+    const int times = (int)strtol(lv_textarea_get_text(s_feeder_times_ta), NULL, 10);
+    const int amount = (int)strtol(lv_textarea_get_text(s_feeder_amount_ta), NULL, 10);
+    if (times < 1 || times > 12) {
+        feeder_show_status("Feedings per day must be 1–12.");
+        return false;
+    }
+    if (amount < 1 || amount > 120) {
+        feeder_show_status("Feed amount must be 1–120 seconds.");
+        return false;
+    }
+
+    if (!aquapilot_settings_set_feeder_schedule(start_h, start_m, end_h, end_m, (uint8_t)times, (uint16_t)amount)) {
+        feeder_show_status("Could not save feeder settings.");
+        return false;
+    }
+
+    if (s_feeder_host_ta != NULL) {
+        const char *host_txt = lv_textarea_get_text(s_feeder_host_ta);
+        if (!aquapilot_settings_set_feeder_host(host_txt != NULL ? host_txt : "")) {
+            feeder_show_status("Use a hostname or IP for the feeder ESP32.");
+            return false;
+        }
+    }
+
+    feeder_update_preview();
+    feeder_show_status("Feeder settings saved.");
+    return true;
+}
+
+static void feeder_settings_refresh_fields(void)
+{
+    uint8_t start_h = 8;
+    uint8_t start_m = 0;
+    uint8_t end_h = 20;
+    uint8_t end_m = 0;
+    uint8_t times_per_day = 2;
+    uint16_t amount_seconds = 3;
+    aquapilot_settings_get_feeder_schedule(&start_h, &start_m, &end_h, &end_m, &times_per_day, &amount_seconds);
+
+    char buf[16];
+    if (s_feeder_start_ta != NULL) {
+        format_time_hhmm(buf, sizeof(buf), start_h, start_m);
+        lv_textarea_set_text(s_feeder_start_ta, buf);
+    }
+    if (s_feeder_end_ta != NULL) {
+        format_time_hhmm(buf, sizeof(buf), end_h, end_m);
+        lv_textarea_set_text(s_feeder_end_ta, buf);
+    }
+    if (s_feeder_times_ta != NULL) {
+        snprintf(buf, sizeof(buf), "%u", (unsigned)times_per_day);
+        lv_textarea_set_text(s_feeder_times_ta, buf);
+    }
+    if (s_feeder_amount_ta != NULL) {
+        snprintf(buf, sizeof(buf), "%u", (unsigned)amount_seconds);
+        lv_textarea_set_text(s_feeder_amount_ta, buf);
+    }
+    if (s_feeder_host_ta != NULL) {
+        char host[AQUAPILOT_FEEDER_HOST_MAX];
+        aquapilot_settings_get_feeder_host(host, sizeof(host));
+        lv_textarea_set_text(s_feeder_host_ta, host);
+    }
+
+    bool enabled = false;
+    aquapilot_settings_get_feeder_enabled(&enabled);
+    if (s_feeder_enabled_sw != NULL) {
+        if (enabled) {
+            lv_obj_add_state(s_feeder_enabled_sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_feeder_enabled_sw, LV_STATE_CHECKED);
+        }
+    }
+
+    feeder_update_preview();
+    feeder_show_status(feeder_service_status_text());
 }
 
 static void filter_stop_ui_timer(void)
@@ -656,6 +828,9 @@ static void settings_keyboard_accept(lv_obj_t *ta)
         shelly_save_from_fields();
     } else if (ta == s_manual_date_ta || ta == s_manual_time_ta) {
         time_settings_save_from_fields();
+    } else if (ta == s_feeder_start_ta || ta == s_feeder_end_ta || ta == s_feeder_times_ta ||
+               ta == s_feeder_amount_ta || ta == s_feeder_host_ta) {
+        feeder_settings_save_from_fields();
     }
 }
 
@@ -798,8 +973,14 @@ static lv_obj_t *create_form_panel(lv_obj_t *parent)
     lv_obj_set_style_radius(form, 12, 0);
     lv_obj_set_style_pad_all(form, 20, 0);
     lv_obj_set_flex_flow(form, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(form, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(form, 12, 0);
     return form;
+}
+
+static void style_settings_input(lv_obj_t *field)
+{
+    lv_obj_set_width(field, LV_PCT(SETTINGS_INPUT_WIDTH_PCT));
 }
 
 static lv_obj_t *create_field_label(lv_obj_t *parent, const char *text)
@@ -814,7 +995,7 @@ static lv_obj_t *create_field_label(lv_obj_t *parent, const char *text)
 static lv_obj_t *create_one_line_field(lv_obj_t *parent, const char *placeholder)
 {
     lv_obj_t *ta = lv_textarea_create(parent);
-    lv_obj_set_width(ta, LV_PCT(100));
+    style_settings_input(ta);
     lv_obj_set_height(ta, 48);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_max_length(ta, 8);
@@ -825,7 +1006,7 @@ static lv_obj_t *create_one_line_field(lv_obj_t *parent, const char *placeholder
 static lv_obj_t *create_timezone_dropdown(lv_obj_t *parent)
 {
     lv_obj_t *dd = lv_dropdown_create(parent);
-    lv_obj_set_width(dd, LV_PCT(100));
+    style_settings_input(dd);
     lv_dropdown_set_options_static(dd, timezone_options_dropdown_string());
     lv_obj_set_style_bg_color(dd, lv_color_hex(BTN_BG_COLOR), 0);
     lv_obj_set_style_border_color(dd, lv_color_hex(BORDER_COLOR), 0);
@@ -838,7 +1019,7 @@ static lv_obj_t *create_timezone_dropdown(lv_obj_t *parent)
 static lv_obj_t *create_text_field(lv_obj_t *parent, const char *placeholder, size_t max_len)
 {
     lv_obj_t *ta = lv_textarea_create(parent);
-    lv_obj_set_width(ta, LV_PCT(100));
+    style_settings_input(ta);
     lv_obj_set_height(ta, 48);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_max_length(ta, (uint32_t)max_len);
@@ -849,7 +1030,7 @@ static lv_obj_t *create_text_field(lv_obj_t *parent, const char *placeholder, si
 static lv_obj_t *create_address_field(lv_obj_t *parent, const char *placeholder)
 {
     lv_obj_t *ta = lv_textarea_create(parent);
-    lv_obj_set_width(ta, LV_PCT(100));
+    style_settings_input(ta);
     lv_obj_set_height(ta, 48);
     lv_textarea_set_one_line(ta, true);
     lv_textarea_set_max_length(ta, AQUAPILOT_SHELLY_ADDR_MAX - 1);
@@ -1037,6 +1218,76 @@ static void menu_maintenance_cb(lv_event_t *e)
     }
 }
 
+static void feeder_stop_ui_timer(void)
+{
+    if (s_feeder_ui_timer != NULL) {
+        lv_timer_delete(s_feeder_ui_timer);
+        s_feeder_ui_timer = NULL;
+    }
+}
+
+static void feeder_refresh_ui(void)
+{
+    feeder_settings_refresh_fields();
+}
+
+static void feeder_ui_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    feeder_refresh_ui();
+}
+
+static void feeder_start_ui_timer(void)
+{
+    if (s_feeder_ui_timer == NULL) {
+        s_feeder_ui_timer = lv_timer_create(feeder_ui_timer_cb, 500, NULL);
+    }
+}
+
+static void feeder_enabled_switch_cb(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    const bool enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    aquapilot_settings_set_feeder_enabled(enabled);
+    feeder_show_status(enabled ? "Automatic feeder enabled" : "Automatic feeder disabled");
+}
+
+static void feeder_feed_now_cb(lv_event_t *e)
+{
+    (void)e;
+    if (feeder_service_feed_now() != ESP_OK) {
+        feeder_show_status("Could not start feeding.");
+    }
+}
+
+static void feeder_skip_next_cb(lv_event_t *e)
+{
+    (void)e;
+    if (feeder_service_skip_next_feeding() != ESP_OK) {
+        feeder_show_status("Could not skip next feeding.");
+    }
+}
+
+static void feeder_back_cb(lv_event_t *e)
+{
+    (void)e;
+    hide_all_keyboards();
+    feeder_settings_save_from_fields();
+    feeder_stop_ui_timer();
+    screen_settings_show();
+}
+
+static void menu_feeder_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_feeder_screen != NULL) {
+        hide_all_keyboards();
+        feeder_refresh_ui();
+        feeder_start_ui_timer();
+        lv_screen_load(s_feeder_screen);
+    }
+}
+
 static lv_obj_t *create_menu_button_grid(lv_obj_t *grid, const char *label, lv_event_cb_t cb, int col, int row)
 {
     lv_obj_t *btn = lv_button_create(grid);
@@ -1089,6 +1340,7 @@ static void create_hub_screen(void)
     create_menu_button_grid(menu, "CO2 Schedule", menu_co2_cb, 1, 2);
     create_menu_button_grid(menu, "Filter Calibration", menu_filter_cb, 0, 3);
     create_menu_button_grid(menu, "Maintenance Mode", menu_maintenance_cb, 1, 3);
+    create_menu_button_grid(menu, "Automatic Feeder", menu_feeder_cb, 0, 4);
 
     create_back_button(s_hub_screen, hub_back_cb);
 }
@@ -1179,6 +1431,180 @@ static void create_co2_screen(void)
     create_back_button(s_co2_screen, co2_back_cb);
 }
 
+static lv_obj_t *create_feeder_input_row(lv_obj_t *parent)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    return row;
+}
+
+static lv_obj_t *create_band_grid_row(lv_obj_t *parent)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(row, 16, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    return row;
+}
+
+static lv_obj_t *create_band_grid_cell(lv_obj_t *parent, const char *label_text, const char *placeholder)
+{
+    lv_obj_t *cell = lv_obj_create(parent);
+    lv_obj_remove_style_all(cell);
+    lv_obj_set_width(cell, LV_PCT(48));
+    lv_obj_set_height(cell, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(cell, 4, 0);
+    lv_obj_remove_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+
+    create_field_label(cell, label_text);
+    lv_obj_t *ta = create_one_line_field(cell, placeholder);
+    lv_obj_set_width(ta, LV_PCT(100));
+    return ta;
+}
+
+static lv_obj_t *create_feeder_action_button(lv_obj_t *parent, const char *label, lv_event_cb_t cb)
+{
+    lv_obj_t *btn = lv_button_create(parent);
+    lv_obj_set_width(btn, 200);
+    lv_obj_set_height(btn, 48);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(FEEDER_BTN_GREEN), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x2EA043), LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(btn, 0, 0);
+    lv_obj_set_style_radius(btn, 8, 0);
+    lv_obj_set_style_shadow_width(btn, 10, 0);
+    lv_obj_set_style_shadow_ofs_y(btn, 4, 0);
+    lv_obj_set_style_shadow_color(btn, lv_color_hex(FEEDER_BTN_SHADOW), 0);
+    lv_obj_set_style_shadow_opa(btn, LV_OPA_60, 0);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *lbl = lv_label_create(btn);
+    lv_label_set_text(lbl, label);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+    lv_obj_center(lbl);
+    return btn;
+}
+
+static void create_feeder_screen(void)
+{
+    s_feeder_screen = lv_obj_create(NULL);
+    apply_screen_style(s_feeder_screen);
+    lv_obj_set_flex_flow(s_feeder_screen, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_feeder_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(s_feeder_screen, 8, 0);
+    lv_obj_remove_flag(s_feeder_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    create_screen_title(s_feeder_screen, "Automatic Feeder");
+
+    lv_obj_t *form = create_form_panel(s_feeder_screen);
+    lv_obj_set_style_pad_all(form, 12, 0);
+    lv_obj_set_style_pad_row(form, 6, 0);
+
+    lv_obj_t *content_row = lv_obj_create(form);
+    lv_obj_remove_style_all(content_row);
+    lv_obj_set_width(content_row, LV_PCT(100));
+    lv_obj_set_height(content_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(content_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(content_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(content_row, 16, 0);
+    lv_obj_remove_flag(content_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *fields_col = create_feeder_input_row(content_row);
+    lv_obj_set_flex_grow(fields_col, 1);
+    lv_obj_set_style_pad_row(fields_col, 6, 0);
+
+    lv_obj_t *actions_col = lv_obj_create(content_row);
+    lv_obj_remove_style_all(actions_col);
+    lv_obj_set_width(actions_col, 200);
+    lv_obj_set_height(actions_col, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(actions_col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(actions_col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(actions_col, 8, 0);
+    lv_obj_remove_flag(actions_col, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *enable_lbl = lv_label_create(actions_col);
+    lv_label_set_text(enable_lbl, "Enable");
+    lv_obj_set_style_text_color(enable_lbl, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(enable_lbl, &lv_font_montserrat_16, 0);
+
+    s_feeder_enabled_sw = lv_switch_create(actions_col);
+    lv_obj_set_size(s_feeder_enabled_sw, 78, 46);
+    lv_obj_add_event_cb(s_feeder_enabled_sw, feeder_enabled_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    create_field_label(fields_col, "Feeder ESP32 host (IP or hostname)");
+    s_feeder_host_ta = create_text_field(fields_col, "192.168.1.50", AQUAPILOT_FEEDER_HOST_MAX - 1);
+
+    create_field_label(fields_col, "Feeding window start (HH:MM, 24h)");
+    s_feeder_start_ta = create_one_line_field(fields_col, "08:00");
+    lv_textarea_set_max_length(s_feeder_start_ta, 5);
+
+    create_field_label(fields_col, "Feeding window end (HH:MM, 24h)");
+    s_feeder_end_ta = create_one_line_field(fields_col, "20:00");
+    lv_textarea_set_max_length(s_feeder_end_ta, 5);
+
+    create_field_label(fields_col, "Feedings per day");
+    s_feeder_times_ta = create_one_line_field(fields_col, "2");
+    lv_textarea_set_max_length(s_feeder_times_ta, 2);
+
+    create_field_label(fields_col, "Feeding amount (seconds)");
+    s_feeder_amount_ta = create_one_line_field(fields_col, "3");
+    lv_textarea_set_max_length(s_feeder_amount_ta, 3);
+
+    s_feeder_preview = lv_label_create(fields_col);
+    lv_label_set_text(s_feeder_preview, "Feedings: --");
+    lv_obj_set_style_text_color(s_feeder_preview, lv_color_hex(VALUE_COLOR), 0);
+    lv_obj_set_style_text_font(s_feeder_preview, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(s_feeder_preview, LV_PCT(100));
+
+    create_feeder_action_button(actions_col, "Feed Now", feeder_feed_now_cb);
+    create_feeder_action_button(actions_col, "Skip Next Feeding", feeder_skip_next_cb);
+
+    s_feeder_status = lv_label_create(form);
+    lv_label_set_text(s_feeder_status, "");
+    lv_obj_set_style_text_color(s_feeder_status, lv_color_hex(VALUE_COLOR), 0);
+    lv_obj_set_style_text_font(s_feeder_status, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(s_feeder_status, LV_PCT(100));
+
+    s_feeder_keyboard = lv_keyboard_create(s_feeder_screen);
+    lv_obj_set_width(s_feeder_keyboard, LV_PCT(100));
+    lv_obj_set_height(s_feeder_keyboard, 180);
+    lv_obj_add_flag(s_feeder_keyboard, LV_OBJ_FLAG_HIDDEN);
+    bind_keyboard(s_feeder_keyboard);
+
+    s_feeder_time_keyboard = lv_keyboard_create(s_feeder_screen);
+    lv_obj_set_width(s_feeder_time_keyboard, LV_PCT(100));
+    lv_obj_set_height(s_feeder_time_keyboard, 180);
+    lv_obj_add_flag(s_feeder_time_keyboard, LV_OBJ_FLAG_HIDDEN);
+    lv_keyboard_set_map(s_feeder_time_keyboard, LV_KEYBOARD_MODE_USER_1, s_time_kb_map, s_time_kb_ctrl);
+    bind_keyboard(s_feeder_time_keyboard);
+
+    s_feeder_host_keyboard = lv_keyboard_create(s_feeder_screen);
+    lv_obj_set_width(s_feeder_host_keyboard, LV_PCT(100));
+    lv_obj_set_height(s_feeder_host_keyboard, 180);
+    lv_obj_add_flag(s_feeder_host_keyboard, LV_OBJ_FLAG_HIDDEN);
+    bind_keyboard(s_feeder_host_keyboard);
+
+    attach_feeder_host_field(s_feeder_host_ta);
+    attach_feeder_time_field(s_feeder_start_ta);
+    attach_feeder_time_field(s_feeder_end_ta);
+    attach_feeder_number_field(s_feeder_times_ta);
+    attach_feeder_number_field(s_feeder_amount_ta);
+    feeder_settings_refresh_fields();
+
+    create_back_button(s_feeder_screen, feeder_back_cb);
+}
+
 static void filter_calibrate_cb(lv_event_t *e)
 {
     (void)e;
@@ -1207,11 +1633,14 @@ static void create_filter_screen(void)
     apply_screen_style(s_filter_screen);
     lv_obj_set_flex_flow(s_filter_screen, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s_filter_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(s_filter_screen, 12, 0);
+    lv_obj_set_style_pad_row(s_filter_screen, 8, 0);
+    lv_obj_remove_flag(s_filter_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     create_screen_title(s_filter_screen, "Filter Calibration");
 
     lv_obj_t *form = create_form_panel(s_filter_screen);
+    lv_obj_set_style_pad_all(form, 12, 0);
+    lv_obj_set_style_pad_row(form, 8, 0);
 
     lv_obj_t *steps = lv_label_create(form);
     lv_label_set_text(steps,
@@ -1268,24 +1697,18 @@ static void create_filter_screen(void)
     lv_obj_set_width(s_filter_status, LV_PCT(100));
 
     lv_obj_t *band_hint = lv_label_create(form);
-    lv_label_set_text(band_hint,
-                      "Gauge bands (% of baseline). Order: green < yellow < red < cutoff. "
-                      "Cutoff sets the outer edges of the red gauge bars.");
+    lv_label_set_text(band_hint, "Gauge bands (% of baseline): green < yellow < red < cutoff.");
     lv_obj_set_style_text_color(band_hint, lv_color_hex(STATUS_COLOR), 0);
     lv_obj_set_style_text_font(band_hint, &lv_font_montserrat_16, 0);
     lv_obj_set_width(band_hint, LV_PCT(100));
 
-    create_field_label(form, "Green band +/- (%)");
-    s_filter_green_band_ta = create_one_line_field(form, "10");
+    lv_obj_t *band_row1 = create_band_grid_row(form);
+    s_filter_green_band_ta = create_band_grid_cell(band_row1, "Green band +/- (%)", "10");
+    s_filter_yellow_band_ta = create_band_grid_cell(band_row1, "Yellow band +/- (%)", "25");
 
-    create_field_label(form, "Yellow band +/- (%)");
-    s_filter_yellow_band_ta = create_one_line_field(form, "25");
-
-    create_field_label(form, "Red band +/- (%)");
-    s_filter_red_band_ta = create_one_line_field(form, "40");
-
-    create_field_label(form, "Red band cutoff +/- (%)");
-    s_filter_red_cutoff_band_ta = create_one_line_field(form, "50");
+    lv_obj_t *band_row2 = create_band_grid_row(form);
+    s_filter_red_band_ta = create_band_grid_cell(band_row2, "Red band +/- (%)", "40");
+    s_filter_red_cutoff_band_ta = create_band_grid_cell(band_row2, "Red band cutoff +/- (%)", "50");
 
     s_filter_band_status = lv_label_create(form);
     lv_label_set_text(s_filter_band_status, "");
@@ -1778,6 +2201,7 @@ void screen_settings_create(void)
     create_maintenance_screen();
     create_time_screen();
     create_co2_screen();
+    create_feeder_screen();
     create_filter_screen();
     ui_nav_set_settings_screen(s_hub_screen);
 }

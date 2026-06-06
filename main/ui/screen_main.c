@@ -78,7 +78,7 @@ screen_main_t screen_main_create(void)
     screen_main_t main_screen = {0};
 
     static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
-    static lv_coord_t row_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
+    static lv_coord_t row_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), 56, LV_GRID_TEMPLATE_LAST};
 
     s_screen = lv_obj_create(NULL);
     lv_obj_remove_style_all(s_screen);
@@ -117,11 +117,14 @@ screen_main_t screen_main_create(void)
     s_light_status_tile = tile_light_status_create(grid);
     grid_add_cell(grid, s_light_status_tile.root, 0, 2);
 
+    add_empty_cell(grid, 1, 2);
+    add_empty_cell(grid, 2, 2);
+
     s_connections_tile = tile_connections_create(grid);
-    grid_add_cell(grid, s_connections_tile.root, 1, 2);
+    lv_obj_set_grid_cell(s_connections_tile.root, LV_GRID_ALIGN_STRETCH, 0, 2, LV_GRID_ALIGN_STRETCH, 3, 1);
 
     tile_settings_t settings = tile_settings_create(grid);
-    grid_add_cell(grid, settings.root, 2, 2);
+    grid_add_cell(grid, settings.root, 2, 3);
 
     ui_nav_set_dashboard_screen(s_screen);
     lv_screen_load(s_screen);

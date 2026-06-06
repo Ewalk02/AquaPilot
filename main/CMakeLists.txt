@@ -19,6 +19,7 @@ idf_component_register(
         "ui/tile_light_status.c"
         "schedule/co2_schedule.c"
         "schedule/co2_automation.c"
+        "schedule/feeder_service.c"
         "schedule/aquapilot_time.c"
         "sensors/temp_source.c"
         "connections/connection_status.c"
@@ -26,6 +27,7 @@ idf_component_register(
         "net/shelly_client.c"
         "safety/heater_override.c"
         "safety/co2_power_monitor.c"
+        "feeder/feeder_client.c"
         "safety/filter_power_monitor.c"
         "safety/filter_calibration.c"
         "safety/maintenance_mode.c"
@@ -52,6 +54,7 @@ idf_component_register(
         "ble"
         "heater"
         "light"
+        "feeder"
     REQUIRES
         waveshare__esp32_p4_wifi6_touch_lcd_7b
         nvs_flash

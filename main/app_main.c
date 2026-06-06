@@ -8,12 +8,14 @@
 #include "storage/aquapilot_settings.h"
 #include "schedule/co2_schedule.h"
 #include "schedule/co2_automation.h"
+#include "schedule/feeder_service.h"
 #include "schedule/aquapilot_time.h"
 #include "heater/heater_service.h"
 #include "light/light_service.h"
 #include "safety/heater_override.h"
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
+#include "feeder/feeder_client.h"
 #include "safety/filter_calibration.h"
 #include "safety/maintenance_mode.h"
 
@@ -96,6 +98,16 @@ void app_main(void)
     esp_err_t co2_auto_err = co2_automation_init();
     if (co2_auto_err != ESP_OK) {
         ESP_LOGW(TAG, "CO2 automation init failed");
+    }
+
+    esp_err_t feeder_err = feeder_service_init();
+    if (feeder_err != ESP_OK) {
+        ESP_LOGW(TAG, "feeder service init failed");
+    }
+
+    esp_err_t feeder_client_err = feeder_client_init();
+    if (feeder_client_err != ESP_OK) {
+        ESP_LOGW(TAG, "feeder client init failed");
     }
 
     esp_err_t co2_power_err = co2_power_monitor_init();

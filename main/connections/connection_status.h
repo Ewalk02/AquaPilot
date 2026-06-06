@@ -9,6 +9,7 @@ typedef enum {
     CONNECTION_HEATER,
     CONNECTION_FILTER,
     CONNECTION_LIGHT,
+    CONNECTION_FEEDER,
     CONNECTION_COUNT,
 } connection_id_t;
 
