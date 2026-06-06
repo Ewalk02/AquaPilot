@@ -5,14 +5,14 @@
 
 #include <stdio.h>
 
-#define TILE_TITLE_COLOR    0x8B949E
-#define TILE_VALUE_ON       0x3FB950
-#define TILE_VALUE_OFF      0xFF4444
-#define TILE_STATUS_COLOR   0x6E7681
-#define TILE_ON_BG          0x13261B
-#define TILE_ON_BORDER      0x3FB950
-#define TILE_OFF_BG         0x3D0A0A
-#define TILE_OFF_BORDER     0xFF4444
+#define TILE_TITLE_COLOR      0x8B949E
+#define TILE_VALUE_COLOR      0xE6EDF3
+#define TILE_VALUE_ON         0x3FB950
+#define TILE_STATUS_COLOR     0x6E7681
+#define TILE_DEFAULT_BG       0x161B22
+#define TILE_DEFAULT_BORDER   0x30363D
+#define TILE_ON_BG            0x13261B
+#define TILE_ON_BORDER        0x3FB950
 
 static void apply_panel_colors(lv_obj_t *root, uint32_t bg, uint32_t border)
 {
@@ -42,7 +42,7 @@ tile_light_status_t tile_light_status_create(lv_obj_t *parent)
 
     tile.value_label = lv_label_create(tile.root);
     lv_label_set_text(tile.value_label, "OFF");
-    lv_obj_set_style_text_color(tile.value_label, lv_color_hex(TILE_VALUE_OFF), 0);
+    lv_obj_set_style_text_color(tile.value_label, lv_color_hex(TILE_VALUE_COLOR), 0);
     lv_obj_set_style_text_font(tile.value_label, &lv_font_montserrat_36, 0);
 
     tile.brightness_label = lv_label_create(tile.root);
@@ -64,7 +64,7 @@ void tile_light_status_update(tile_light_status_t *tile)
     const bool have_status = light_service_has_status();
     const light_status_mode_t mode = light_service_get_mode();
 
-    tile_restore_value_label(tile->value_label, on ? TILE_VALUE_ON : TILE_VALUE_OFF);
+    tile_restore_value_label(tile->value_label, on ? TILE_VALUE_ON : TILE_VALUE_COLOR);
     lv_label_set_text(tile->value_label, on ? "ON" : "OFF");
 
     if (tile->brightness_label != NULL) {
@@ -86,7 +86,7 @@ void tile_light_status_update(tile_light_status_t *tile)
         if (on) {
             apply_panel_colors(tile->root, TILE_ON_BG, TILE_ON_BORDER);
         } else {
-            apply_panel_colors(tile->root, TILE_OFF_BG, TILE_OFF_BORDER);
+            apply_panel_colors(tile->root, TILE_DEFAULT_BG, TILE_DEFAULT_BORDER);
         }
     }
 }

@@ -6,6 +6,7 @@
 #include "net/shelly_client.h"
 #include "safety/filter_calibration.h"
 #include "schedule/co2_schedule.h"
+#include "safety/maintenance_mode.h"
 #include "storage/aquapilot_settings.h"
 
 static const char *TAG = "co2_auto";
@@ -16,7 +17,7 @@ static int8_t s_last_desired = -1;
 
 static void sync_co2_plug(void)
 {
-    if (filter_calibration_is_active()) {
+    if (filter_calibration_is_active() || maintenance_mode_is_active()) {
         return;
     }
 
@@ -51,6 +52,12 @@ static void automation_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(SYNC_INTERVAL_MS));
         sync_co2_plug();
     }
+}
+
+void co2_automation_sync_now(void)
+{
+    s_last_desired = -1;
+    sync_co2_plug();
 }
 
 esp_err_t co2_automation_init(void)

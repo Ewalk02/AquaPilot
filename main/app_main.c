@@ -15,6 +15,7 @@
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
 #include "safety/filter_calibration.h"
+#include "safety/maintenance_mode.h"
 
 static const char *TAG = "aquapilot";
 
@@ -54,6 +55,11 @@ static void platform_init(void)
     }
 
     aquapilot_settings_init();
+
+    esp_err_t maint_err = maintenance_mode_init();
+    if (maint_err != ESP_OK) {
+        ESP_LOGW(TAG, "maintenance mode init failed");
+    }
 
     aquapilot_time_init();
     co2_schedule_init();

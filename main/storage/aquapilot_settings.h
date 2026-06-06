@@ -51,6 +51,9 @@ bool aquapilot_settings_set_co2_power_monitor_enabled(bool enabled);
 bool aquapilot_settings_get_heater_shelly_power_monitor_enabled(bool *enabled);
 bool aquapilot_settings_set_heater_shelly_power_monitor_enabled(bool enabled);
 
+bool aquapilot_settings_get_maintenance_mode_enabled(bool *enabled);
+bool aquapilot_settings_set_maintenance_mode_enabled(bool enabled);
+
 bool aquapilot_settings_get_wifi_time_enabled(bool *enabled);
 bool aquapilot_settings_set_wifi_time_enabled(bool enabled);
 bool aquapilot_settings_get_timezone(char *buf, size_t len);

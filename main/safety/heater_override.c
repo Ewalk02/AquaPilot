@@ -8,6 +8,7 @@
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
 #include "safety/filter_calibration.h"
+#include "safety/maintenance_mode.h"
 #include "storage/aquapilot_settings.h"
 
 static const char *TAG = "heater_override";
@@ -140,6 +141,14 @@ static void monitor_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(POLL_PHASE_MS));
 
     while (true) {
+        if (maintenance_mode_is_active()) {
+            s_alarm_active = false;
+            s_alarm_reason = HEATER_ALARM_NONE;
+            s_last_off_attempt_ms = 0;
+            vTaskDelay(pdMS_TO_TICKS(MONITOR_INTERVAL_MS));
+            continue;
+        }
+
         s_cached_shelly_valid = false;
         (void)refresh_heater_shelly_watts();
 

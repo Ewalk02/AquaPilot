@@ -28,6 +28,7 @@ idf_component_register(
         "safety/co2_power_monitor.c"
         "safety/filter_power_monitor.c"
         "safety/filter_calibration.c"
+        "safety/maintenance_mode.c"
         "storage/wifi_creds_nvs.c"
         "storage/aquapilot_nvs.c"
         "storage/aquapilot_settings.c"

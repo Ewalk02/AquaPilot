@@ -3,6 +3,7 @@
 #include "lvgl.h"
 #include "safety/filter_calibration.h"
 #include "safety/filter_power_monitor.h"
+#include "safety/maintenance_mode.h"
 #include "screen_wifi.h"
 #include "storage/aquapilot_settings.h"
 #include "ui_nav.h"
@@ -35,6 +36,7 @@ static lv_obj_t *s_co2_screen;
 static lv_obj_t *s_filter_screen;
 static lv_obj_t *s_shelly_screen;
 static lv_obj_t *s_safety_screen;
+static lv_obj_t *s_maintenance_screen;
 static lv_obj_t *s_time_screen;
 
 static lv_obj_t *s_temp_setpoint_ta;
@@ -65,6 +67,9 @@ static lv_obj_t *s_shelly_status;
 static lv_obj_t *s_heater_override_sw;
 static lv_obj_t *s_heater_shelly_power_monitor_sw;
 static lv_obj_t *s_co2_power_monitor_sw;
+static lv_obj_t *s_maintenance_sw;
+static lv_obj_t *s_maintenance_status;
+static lv_timer_t *s_maintenance_ui_timer;
 static lv_obj_t *s_wifi_time_sw;
 static lv_obj_t *s_tz_dd;
 static lv_obj_t *s_manual_date_ta;
@@ -957,16 +962,96 @@ static void menu_time_cb(lv_event_t *e)
     }
 }
 
-static lv_obj_t *create_menu_button(lv_obj_t *parent, const char *label, lv_event_cb_t cb)
+static void maintenance_stop_ui_timer(void)
 {
-    lv_obj_t *btn = lv_button_create(parent);
+    if (s_maintenance_ui_timer != NULL) {
+        lv_timer_delete(s_maintenance_ui_timer);
+        s_maintenance_ui_timer = NULL;
+    }
+}
+
+static void maintenance_refresh_fields(void)
+{
+    if (s_maintenance_sw != NULL) {
+        if (maintenance_mode_is_active()) {
+            lv_obj_add_state(s_maintenance_sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_maintenance_sw, LV_STATE_CHECKED);
+        }
+
+        if (maintenance_mode_sequence_running()) {
+            lv_obj_add_state(s_maintenance_sw, LV_STATE_DISABLED);
+        } else {
+            lv_obj_clear_state(s_maintenance_sw, LV_STATE_DISABLED);
+        }
+    }
+
+    if (s_maintenance_status != NULL) {
+        lv_label_set_text(s_maintenance_status, maintenance_mode_status_text());
+    }
+}
+
+static void maintenance_ui_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    maintenance_refresh_fields();
+}
+
+static void maintenance_start_ui_timer(void)
+{
+    if (s_maintenance_ui_timer == NULL) {
+        s_maintenance_ui_timer = lv_timer_create(maintenance_ui_timer_cb, 500, NULL);
+    }
+}
+
+static void maintenance_switch_cb(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    const bool enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
+
+    if (maintenance_mode_apply(enabled) != ESP_OK) {
+        if (enabled) {
+            lv_obj_clear_state(sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_add_state(sw, LV_STATE_CHECKED);
+        }
+    }
+}
+
+static void maintenance_back_cb(lv_event_t *e)
+{
+    (void)e;
+    hide_all_keyboards();
+    maintenance_stop_ui_timer();
+    screen_settings_show();
+}
+
+static void menu_maintenance_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_maintenance_screen != NULL) {
+        hide_all_keyboards();
+        maintenance_refresh_fields();
+        maintenance_start_ui_timer();
+        lv_screen_load(s_maintenance_screen);
+    }
+}
+
+static lv_obj_t *create_menu_button_grid(lv_obj_t *grid, const char *label, lv_event_cb_t cb, int col, int row)
+{
+    lv_obj_t *btn = lv_button_create(grid);
     style_menu_button(btn);
+    lv_obj_set_height(btn, LV_PCT(100));
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, col, 1, LV_GRID_ALIGN_STRETCH, row, 1);
 
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, label);
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(VALUE_COLOR), 0);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_width(lbl, LV_PCT(90));
     lv_obj_center(lbl);
     return btn;
 }
@@ -984,17 +1069,26 @@ static void create_hub_screen(void)
     lv_obj_t *menu = lv_obj_create(s_hub_screen);
     lv_obj_remove_style_all(menu);
     lv_obj_set_width(menu, LV_PCT(100));
-    lv_obj_set_height(menu, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(menu, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_grow(menu, 1);
+    lv_obj_set_layout(menu, LV_LAYOUT_GRID);
+
+    static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
+    static lv_coord_t row_dsc[] = {
+        LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1),
+        LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST,
+    };
+    lv_obj_set_grid_dsc_array(menu, col_dsc, row_dsc);
+    lv_obj_set_style_pad_column(menu, 10, 0);
     lv_obj_set_style_pad_row(menu, 10, 0);
 
-    create_menu_button(menu, "Wi-Fi Configuration", menu_wifi_cb);
-    create_menu_button(menu, "Time Settings", menu_time_cb);
-    create_menu_button(menu, "Tank Temperature Settings", menu_temp_settings_cb);
-    create_menu_button(menu, "Shelly Configuration", menu_shelly_cb);
-    create_menu_button(menu, "Safety Settings", menu_safety_cb);
-    create_menu_button(menu, "CO2 Schedule", menu_co2_cb);
-    create_menu_button(menu, "Filter Calibration", menu_filter_cb);
+    create_menu_button_grid(menu, "Wi-Fi Configuration", menu_wifi_cb, 0, 0);
+    create_menu_button_grid(menu, "Time Settings", menu_time_cb, 1, 0);
+    create_menu_button_grid(menu, "Tank Temperature Settings", menu_temp_settings_cb, 0, 1);
+    create_menu_button_grid(menu, "Shelly Configuration", menu_shelly_cb, 1, 1);
+    create_menu_button_grid(menu, "Safety Settings", menu_safety_cb, 0, 2);
+    create_menu_button_grid(menu, "CO2 Schedule", menu_co2_cb, 1, 2);
+    create_menu_button_grid(menu, "Filter Calibration", menu_filter_cb, 0, 3);
+    create_menu_button_grid(menu, "Maintenance Mode", menu_maintenance_cb, 1, 3);
 
     create_back_button(s_hub_screen, hub_back_cb);
 }
@@ -1371,6 +1465,53 @@ static void create_safety_screen(void)
     create_back_button(s_safety_screen, sub_back_cb);
 }
 
+static void create_maintenance_screen(void)
+{
+    s_maintenance_screen = lv_obj_create(NULL);
+    apply_screen_style(s_maintenance_screen);
+    lv_obj_set_flex_flow(s_maintenance_screen, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_maintenance_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(s_maintenance_screen, 12, 0);
+
+    create_screen_title(s_maintenance_screen, "Maintenance Mode");
+
+    lv_obj_t *form = create_form_panel(s_maintenance_screen);
+
+    lv_obj_t *desc = lv_label_create(form);
+    lv_label_set_text(desc,
+                      "When enabled, equipment shuts down in order: heater plug, CO2 plug, then filter "
+                      "plug (5 seconds between each step). When disabled, equipment is restored in reverse "
+                      "order: filter plug, CO2 plug (per schedule), then heater plug.");
+    lv_obj_set_style_text_color(desc, lv_color_hex(STATUS_COLOR), 0);
+    lv_obj_set_style_text_font(desc, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(desc, LV_PCT(100));
+
+    lv_obj_t *toggle_row = lv_obj_create(form);
+    lv_obj_remove_style_all(toggle_row);
+    lv_obj_set_width(toggle_row, LV_PCT(100));
+    lv_obj_set_height(toggle_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(toggle_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(toggle_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(toggle_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *enable_lbl = lv_label_create(toggle_row);
+    lv_label_set_text(enable_lbl, "Enable");
+    lv_obj_set_style_text_color(enable_lbl, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(enable_lbl, &lv_font_montserrat_16, 0);
+
+    s_maintenance_sw = lv_switch_create(toggle_row);
+    lv_obj_add_event_cb(s_maintenance_sw, maintenance_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_maintenance_status = lv_label_create(form);
+    lv_label_set_text(s_maintenance_status, maintenance_mode_status_text());
+    lv_obj_set_style_text_color(s_maintenance_status, lv_color_hex(VALUE_COLOR), 0);
+    lv_obj_set_style_text_font(s_maintenance_status, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(s_maintenance_status, LV_PCT(100));
+
+    maintenance_refresh_fields();
+    create_back_button(s_maintenance_screen, maintenance_back_cb);
+}
+
 static void time_show_status(const char *text)
 {
     if (s_time_status != NULL && text != NULL) {
@@ -1634,6 +1775,7 @@ void screen_settings_create(void)
     create_temp_range_screen();
     create_shelly_screen();
     create_safety_screen();
+    create_maintenance_screen();
     create_time_screen();
     create_co2_screen();
     create_filter_screen();
