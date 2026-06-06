@@ -6,6 +6,9 @@
 
 esp_err_t heater_service_init(void);
 
+/** True after the shared BLE tick task was created by heater_service_init(). */
+bool heater_service_ble_task_is_running(void);
+
 /** Latest valid heater temperature in °F, or false if none yet. */
 bool heater_service_get_temp_f(float *out_temp_f);
 

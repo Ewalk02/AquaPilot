@@ -24,6 +24,7 @@ static uint8_t s_session_owner;
 static uint8_t s_conn_owner;
 static uint16_t s_conn_handle;
 static uint8_t s_own_addr_type;
+static bool s_light_exclusive;
 
 static void ble_host_task(void *param)
 {
@@ -118,6 +119,45 @@ uint8_t ble_central_manager_connection_owner(void)
     return s_conn_owner;
 }
 
+uint8_t ble_central_manager_session_owner(void)
+{
+    return s_session_owner;
+}
+
+void ble_central_manager_cancel_discovery(void)
+{
+    ble_gap_disc_cancel();
+}
+
+void ble_central_manager_set_light_exclusive(bool active)
+{
+    s_light_exclusive = active;
+}
+
+bool ble_central_manager_is_light_exclusive(void)
+{
+    return s_light_exclusive;
+}
+
+bool ble_central_manager_handoff_to(uint8_t driver_id)
+{
+    if (driver_id >= BLE_CENTRAL_DRV_COUNT || !s_slots[driver_id].registered || !s_slots[driver_id].reg.enabled) {
+        return false;
+    }
+    if (!ble_central_manager_is_ready()) {
+        return false;
+    }
+
+    ble_central_manager_cancel_discovery();
+
+    if (s_conn_owner < BLE_CENTRAL_DRV_COUNT && s_conn_owner != driver_id) {
+        ble_central_manager_disconnect_active();
+    }
+
+    s_session_owner = driver_id;
+    return true;
+}
+
 bool ble_central_manager_request_session(uint8_t driver_id)
 {
     if (driver_id >= BLE_CENTRAL_DRV_COUNT || !s_slots[driver_id].registered || !s_slots[driver_id].reg.enabled) {
@@ -126,6 +166,20 @@ bool ble_central_manager_request_session(uint8_t driver_id)
     if (!ble_central_manager_is_ready()) {
         return false;
     }
+
+    if (s_session_owner < BLE_CENTRAL_DRV_COUNT && s_session_owner != driver_id) {
+        const uint8_t current_prio = s_slots[s_session_owner].reg.priority;
+        const uint8_t request_prio = s_slots[driver_id].reg.priority;
+        if (request_prio < current_prio) {
+            return false;
+        }
+        ble_central_manager_cancel_discovery();
+        if (s_conn_owner == s_session_owner) {
+            ble_central_manager_disconnect_active();
+        }
+        ble_central_manager_release_session(s_session_owner);
+    }
+
     s_session_owner = driver_id;
     return true;
 }
@@ -165,12 +219,27 @@ void ble_central_manager_disconnect_active(void)
     }
 }
 
+static uint8_t gap_event_target(const struct ble_gap_event *event)
+{
+    if (event == NULL) {
+        return BLE_CENTRAL_DRV_COUNT;
+    }
+
+    if (event->type == BLE_GAP_EVENT_DISC) {
+        return s_session_owner;
+    }
+    if (s_conn_owner < BLE_CENTRAL_DRV_COUNT) {
+        return s_conn_owner;
+    }
+    return s_session_owner;
+}
+
 int ble_central_manager_gap_event(struct ble_gap_event *event, void *arg)
 {
     (void)arg;
 
-    const uint8_t target = BLE_CENTRAL_DRV_HEATER;
-    if (!s_slots[target].registered || s_slots[target].reg.gap_handler == NULL) {
+    const uint8_t target = gap_event_target(event);
+    if (target >= BLE_CENTRAL_DRV_COUNT || !s_slots[target].registered || s_slots[target].reg.gap_handler == NULL) {
         return 0;
     }
 
@@ -179,7 +248,7 @@ int ble_central_manager_gap_event(struct ble_gap_event *event, void *arg)
     if (event->type == BLE_GAP_EVENT_CONNECT) {
         if (event->connect.status == 0) {
             ble_central_manager_claim_connection(target, event->connect.conn_handle);
-        } else {
+        } else if (s_session_owner == target) {
             ble_central_manager_clear_connection(target);
         }
     } else if (event->type == BLE_GAP_EVENT_DISCONNECT) {
@@ -197,9 +266,10 @@ void ble_central_manager_tick(void)
         return;
     }
 
-    const uint8_t i = BLE_CENTRAL_DRV_HEATER;
-    if (!s_slots[i].registered || s_slots[i].reg.tick_fn == NULL || !s_slots[i].reg.enabled) {
-        return;
+    for (uint8_t i = 0; i < BLE_CENTRAL_DRV_COUNT; i++) {
+        if (!s_slots[i].registered || s_slots[i].reg.tick_fn == NULL || !s_slots[i].reg.enabled) {
+            continue;
+        }
+        s_slots[i].reg.tick_fn(s_slots[i].reg.tick_arg);
     }
-    s_slots[i].reg.tick_fn(s_slots[i].reg.tick_arg);
 }

@@ -20,4 +20,11 @@ menu "AquaPilot Configuration"
             Advertised BLE name prefix for the Chihiros aquarium heater.
             Scan connects to the first device whose name starts with this prefix.
 
+    config AQUAPILOT_LIGHT_BLE_NAME_PREFIX
+        string "Fluval Plant 4.0 BLE name prefix"
+        default "Plant4.0"
+        help
+            Advertised BLE name prefix for the Fluval Plant 4.0 aquarium light.
+            Scan connects to the first device whose name starts with this prefix.
+
 endmenu

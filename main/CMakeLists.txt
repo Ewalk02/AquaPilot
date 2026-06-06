@@ -16,6 +16,7 @@ idf_component_register(
         "ui/tile_co2_schedule.c"
         "ui/tile_settings.c"
         "ui/tile_connections.c"
+        "ui/tile_light_status.c"
         "schedule/co2_schedule.c"
         "schedule/co2_automation.c"
         "schedule/aquapilot_time.c"
@@ -35,6 +36,9 @@ idf_component_register(
         "heater/chihiros_ble.c"
         "heater/heater_console.c"
         "heater/heater_service.c"
+        "light/fluval_ble.c"
+        "light/light_console.c"
+        "light/light_service.c"
     INCLUDE_DIRS
         "."
         "ui"
@@ -46,6 +50,7 @@ idf_component_register(
         "storage"
         "ble"
         "heater"
+        "light"
     REQUIRES
         waveshare__esp32_p4_wifi6_touch_lcd_7b
         nvs_flash
@@ -57,4 +62,5 @@ idf_component_register(
         console
         bt
         chihiros_heater_protocol
+        fluval_light_protocol
 )

@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "heater_console.h"
+#include "light/light_service.h"
 #include "net/wifi_manager.h"
 #include "storage/aquapilot_settings.h"
 
@@ -29,6 +30,7 @@ static bool s_wifi_sta_requested;
 static esp_timer_handle_t s_poll_timer;
 static esp_timer_handle_t s_wifi_defer_timer;
 static float s_applied_setpoint_f = -1.0f;
+static bool s_ble_task_running;
 
 static void apply_status(const chihiros_status_t *st)
 {
@@ -107,6 +109,7 @@ static void ble_tick_task(void *arg)
 
     while (true) {
         ble_central_manager_tick();
+        light_service_tick();
         refresh_from_ble_status();
 
         if (!s_wifi_sta_requested && chihiros_ble_has_valid_status()) {
@@ -149,6 +152,7 @@ esp_err_t heater_service_init(void)
         ESP_LOGE(TAG, "failed to create ble_tick task");
         return ESP_FAIL;
     }
+    s_ble_task_running = true;
 
     const esp_timer_create_args_t poll_args = {
         .callback = temp_poll_cb,
@@ -183,6 +187,11 @@ esp_err_t heater_service_init(void)
     ESP_LOGI(TAG, "heater service started (prefix=%s, poll=%d min)", CONFIG_AQUAPILOT_HEATER_BLE_NAME_PREFIX,
              TEMP_POLL_INTERVAL_MS / 60000);
     return ESP_OK;
+}
+
+bool heater_service_ble_task_is_running(void)
+{
+    return s_ble_task_running;
 }
 
 bool heater_service_get_temp_f(float *out_temp_f)

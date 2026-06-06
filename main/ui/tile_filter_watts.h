@@ -9,6 +9,7 @@ typedef struct {
     lv_obj_t *bar_row;
     lv_obj_t *marker;
     lv_obj_t *scale_labels;
+    lv_obj_t *device_label;
     lv_obj_t *hint_label;
 } tile_filter_watts_t;
 

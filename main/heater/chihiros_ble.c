@@ -469,6 +469,8 @@ static int scan_start(void)
         return BLE_HS_EBUSY;
     }
 
+    ble_central_manager_cancel_discovery();
+
     struct ble_gap_disc_params params = {0};
     params.passive = 0;
     params.itvl = 0x0010;
@@ -543,10 +545,18 @@ static void chihiros_ble_tick_fn(void *arg)
         return;
     }
 
+    if (ble_central_manager_is_light_exclusive() ||
+        ble_central_manager_session_owner() == BLE_CENTRAL_DRV_LIGHT) {
+        return;
+    }
+
     if (!s_have_adv_target) {
         int rc = scan_start();
         if (rc != 0) {
             ESP_LOGW(TAG, "scan rc=%d", rc);
+            if (rc == BLE_HS_EBUSY) {
+                ble_central_manager_cancel_discovery();
+            }
         }
         s_next_action_us = now_us + (uint64_t)s_backoff_ms * 1000ULL;
         return;

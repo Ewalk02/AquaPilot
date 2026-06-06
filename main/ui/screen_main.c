@@ -7,6 +7,7 @@
 #include "tile_filter_status.h"
 #include "tile_filter_watts.h"
 #include "tile_heater_power.h"
+#include "tile_light_status.h"
 #include "tile_settings.h"
 #include "tile_temp.h"
 #include "ui_nav.h"
@@ -21,6 +22,7 @@ static tile_co2_schedule_t s_co2_schedule_tile;
 static tile_temp_t s_temp_tile;
 static tile_heater_power_t s_heater_power_tile;
 static tile_connections_t s_connections_tile;
+static tile_light_status_t s_light_status_tile;
 
 static void update_timer_cb(lv_timer_t *timer)
 {
@@ -31,6 +33,7 @@ static void update_timer_cb(lv_timer_t *timer)
     tile_heater_power_update(&s_heater_power_tile);
     tile_filter_status_update(&s_filter_status_tile);
     tile_filter_watts_update(&s_filter_watts_tile);
+    tile_light_status_update(&s_light_status_tile);
     tile_connections_update(&s_connections_tile);
 }
 
@@ -111,7 +114,8 @@ screen_main_t screen_main_create(void)
     s_filter_watts_tile = tile_filter_watts_create(grid);
     grid_add_cell(grid, s_filter_watts_tile.root, 2, 1);
 
-    add_empty_cell(grid, 0, 2);
+    s_light_status_tile = tile_light_status_create(grid);
+    grid_add_cell(grid, s_light_status_tile.root, 0, 2);
 
     s_connections_tile = tile_connections_create(grid);
     grid_add_cell(grid, s_connections_tile.root, 1, 2);

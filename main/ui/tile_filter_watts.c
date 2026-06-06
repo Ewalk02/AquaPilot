@@ -22,6 +22,8 @@
 #define BORDER_SUBTLE    0x30363D
 #define SCALE_LABEL_H    16
 #define SCALE_LABEL_GAP  4
+#define FILTER_DEVICE_NAME     "Fluval 407"
+#define DEVICE_LABEL_MARGIN    4
 #define MAX_SCALE_TICKS  6
 #define MAX_BANDS        5
 
@@ -337,6 +339,16 @@ static bool build_gauge(tile_filter_watts_t *tile, float baseline, uint8_t green
 
     build_scale_labels(tile, min_watts, max_watts, s_band_yellow_lo, s_band_green_lo, s_band_green_hi, s_band_yellow_hi);
 
+    if (tile->device_label == NULL) {
+        tile->device_label = lv_label_create(tile->gauge_container);
+        lv_label_set_text(tile->device_label, FILTER_DEVICE_NAME);
+        lv_obj_set_style_text_color(tile->device_label, lv_color_hex(TILE_HINT_COLOR), 0);
+        lv_obj_set_style_text_font(tile->device_label, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_align(tile->device_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_margin_top(tile->device_label, DEVICE_LABEL_MARGIN, 0);
+    }
+    lv_obj_remove_flag(tile->device_label, LV_OBJ_FLAG_HIDDEN);
+
     tile->marker = lv_obj_create(tile->gauge_container);
     lv_obj_remove_style_all(tile->marker);
     lv_obj_set_size(tile->marker, MARKER_WIDTH, MARKER_HEIGHT);
@@ -412,7 +424,7 @@ tile_filter_watts_t tile_filter_watts_create(lv_obj_t *parent)
     lv_obj_remove_flag(tile.root, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(tile.root);
-    lv_label_set_text(title, "Filter Watts");
+    lv_label_set_text(title, "Filter Power");
     lv_obj_set_style_text_color(title, lv_color_hex(TILE_TITLE_COLOR), 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
 
@@ -459,6 +471,9 @@ void tile_filter_watts_update(tile_filter_watts_t *tile)
 
     if (!calibrated) {
         destroy_gauge(tile);
+        if (tile->device_label != NULL) {
+            lv_obj_add_flag(tile->device_label, LV_OBJ_FLAG_HIDDEN);
+        }
         if (tile->hint_label != NULL) {
             lv_obj_remove_flag(tile->hint_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_move_foreground(tile->hint_label);

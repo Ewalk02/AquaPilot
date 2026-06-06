@@ -10,6 +10,7 @@
 #include "schedule/co2_automation.h"
 #include "schedule/aquapilot_time.h"
 #include "heater/heater_service.h"
+#include "light/light_service.h"
 #include "safety/heater_override.h"
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
@@ -72,6 +73,11 @@ void app_main(void)
     esp_err_t heater_err = heater_service_init();
     if (heater_err != ESP_OK) {
         ESP_LOGW(TAG, "heater BLE init failed (temperature tile will wait)");
+    }
+
+    esp_err_t light_err = light_service_init();
+    if (light_err != ESP_OK) {
+        ESP_LOGW(TAG, "light BLE init failed (light tile will wait)");
     }
 
     platform_init();
