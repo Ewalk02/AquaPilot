@@ -73,3 +73,8 @@ bool aquapilot_settings_set_timezone(const char *timezone);
 bool aquapilot_settings_get_manual_time_valid(bool *valid);
 bool aquapilot_settings_get_manual_epoch(int64_t *epoch);
 bool aquapilot_settings_set_manual_epoch(int64_t epoch);
+
+bool aquapilot_settings_get_display_flip_180(bool *enabled);
+bool aquapilot_settings_set_display_flip_180(bool enabled);
+bool aquapilot_settings_get_display_brightness(uint8_t *brightness_pct);
+bool aquapilot_settings_set_display_brightness(uint8_t brightness_pct);

@@ -3,6 +3,7 @@
 #include "tile_co2_schedule.h"
 #include "tile_co2_status.h"
 #include "tile_common.h"
+#include "tile_ambient.h"
 #include "tile_connections.h"
 #include "tile_filter_status.h"
 #include "tile_filter_watts.h"
@@ -22,6 +23,7 @@ static tile_co2_schedule_t s_co2_schedule_tile;
 static tile_temp_t s_temp_tile;
 static tile_heater_power_t s_heater_power_tile;
 static tile_connections_t s_connections_tile;
+static tile_ambient_t s_ambient_tile;
 static tile_light_status_t s_light_status_tile;
 
 static void update_timer_cb(lv_timer_t *timer)
@@ -35,6 +37,7 @@ static void update_timer_cb(lv_timer_t *timer)
     tile_filter_watts_update(&s_filter_watts_tile);
     tile_light_status_update(&s_light_status_tile);
     tile_connections_update(&s_connections_tile);
+    tile_ambient_update(&s_ambient_tile);
 }
 
 static void heater_power_timer_cb(lv_timer_t *timer)
@@ -120,11 +123,27 @@ screen_main_t screen_main_create(void)
     add_empty_cell(grid, 1, 2);
     add_empty_cell(grid, 2, 2);
 
-    s_connections_tile = tile_connections_create(grid);
-    lv_obj_set_grid_cell(s_connections_tile.root, LV_GRID_ALIGN_STRETCH, 0, 2, LV_GRID_ALIGN_STRETCH, 3, 1);
+    lv_obj_t *bottom_bar = lv_obj_create(grid);
+    lv_obj_remove_style_all(bottom_bar);
+    lv_obj_set_width(bottom_bar, LV_PCT(100));
+    lv_obj_set_height(bottom_bar, LV_PCT(100));
+    lv_obj_set_flex_flow(bottom_bar, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(bottom_bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(bottom_bar, 12, 0);
+    lv_obj_remove_flag(bottom_bar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_grid_cell(bottom_bar, LV_GRID_ALIGN_STRETCH, 0, 3, LV_GRID_ALIGN_STRETCH, 3, 1);
 
-    tile_settings_t settings = tile_settings_create(grid);
-    grid_add_cell(grid, settings.root, 2, 3);
+    s_connections_tile = tile_connections_create(bottom_bar);
+    lv_obj_set_flex_grow(s_connections_tile.root, 12);
+    lv_obj_set_width(s_connections_tile.root, 0);
+
+    s_ambient_tile = tile_ambient_create(bottom_bar);
+    lv_obj_set_flex_grow(s_ambient_tile.root, 3);
+    lv_obj_set_width(s_ambient_tile.root, 0);
+
+    tile_settings_t settings = tile_settings_create(bottom_bar);
+    lv_obj_set_flex_grow(settings.root, 5);
+    lv_obj_set_width(settings.root, 0);
 
     ui_nav_set_dashboard_screen(s_screen);
     lv_screen_load(s_screen);

@@ -12,6 +12,7 @@
 #include "heater/chihiros_ble.h"
 #include "heater/heater_service.h"
 #include "schedule/aquapilot_time.h"
+#include "display/display_control.h"
 #include "feeder/feeder_client.h"
 #include "schedule/feeder_service.h"
 #include "timezone_options.h"
@@ -43,6 +44,7 @@ static lv_obj_t *s_shelly_screen;
 static lv_obj_t *s_safety_screen;
 static lv_obj_t *s_maintenance_screen;
 static lv_obj_t *s_feeder_screen;
+static lv_obj_t *s_display_screen;
 static lv_obj_t *s_time_screen;
 
 static lv_obj_t *s_temp_setpoint_ta;
@@ -88,6 +90,9 @@ static lv_timer_t *s_feeder_ui_timer;
 static lv_obj_t *s_feeder_keyboard;
 static lv_obj_t *s_feeder_time_keyboard;
 static lv_obj_t *s_feeder_host_keyboard;
+static lv_obj_t *s_display_flip_sw;
+static lv_obj_t *s_display_brightness_slider;
+static lv_obj_t *s_display_brightness_label;
 static lv_obj_t *s_wifi_time_sw;
 static lv_obj_t *s_tz_dd;
 static lv_obj_t *s_manual_date_ta;
@@ -1288,6 +1293,116 @@ static void menu_feeder_cb(lv_event_t *e)
     }
 }
 
+static void display_update_brightness_label(uint8_t brightness_pct)
+{
+    if (s_display_brightness_label == NULL) {
+        return;
+    }
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Brightness: %u%%", (unsigned)brightness_pct);
+    lv_label_set_text(s_display_brightness_label, buf);
+}
+
+static void display_refresh_fields(void)
+{
+    bool flip = false;
+    uint8_t brightness = 100;
+
+    aquapilot_settings_get_display_flip_180(&flip);
+    aquapilot_settings_get_display_brightness(&brightness);
+
+    if (s_display_flip_sw != NULL) {
+        if (flip) {
+            lv_obj_add_state(s_display_flip_sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_display_flip_sw, LV_STATE_CHECKED);
+        }
+    }
+
+    if (s_display_brightness_slider != NULL) {
+        lv_slider_set_value(s_display_brightness_slider, brightness, LV_ANIM_OFF);
+    }
+
+    display_update_brightness_label(brightness);
+}
+
+static void display_flip_switch_cb(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    const bool enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    aquapilot_settings_set_display_flip_180(enabled);
+    display_control_set_flip_180(enabled);
+}
+
+static void display_brightness_slider_cb(lv_event_t *e)
+{
+    lv_obj_t *slider = lv_event_get_target(e);
+    const int brightness = lv_slider_get_value(slider);
+    const uint8_t pct = (uint8_t)brightness;
+
+    display_update_brightness_label(pct);
+    aquapilot_settings_set_display_brightness(pct);
+    display_control_set_brightness(pct);
+}
+
+static void menu_display_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_display_screen != NULL) {
+        hide_all_keyboards();
+        display_refresh_fields();
+        lv_screen_load(s_display_screen);
+    }
+}
+
+static void create_display_screen(void)
+{
+    s_display_screen = lv_obj_create(NULL);
+    apply_screen_style(s_display_screen);
+    lv_obj_set_flex_flow(s_display_screen, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_display_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(s_display_screen, 8, 0);
+    lv_obj_remove_flag(s_display_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    create_screen_title(s_display_screen, "Display");
+
+    lv_obj_t *form = create_form_panel(s_display_screen);
+    lv_obj_set_style_pad_all(form, 12, 0);
+    lv_obj_set_style_pad_row(form, 8, 0);
+
+    lv_obj_t *flip_row = lv_obj_create(form);
+    lv_obj_remove_style_all(flip_row);
+    lv_obj_set_width(flip_row, LV_PCT(100));
+    lv_obj_set_height(flip_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(flip_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(flip_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(flip_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *flip_lbl = lv_label_create(flip_row);
+    lv_label_set_text(flip_lbl, "Flip display 180°");
+    lv_obj_set_style_text_color(flip_lbl, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(flip_lbl, &lv_font_montserrat_16, 0);
+
+    s_display_flip_sw = lv_switch_create(flip_row);
+    lv_obj_set_size(s_display_flip_sw, 78, 46);
+    lv_obj_add_event_cb(s_display_flip_sw, display_flip_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_display_brightness_label = lv_label_create(form);
+    lv_label_set_text(s_display_brightness_label, "Brightness: 100%");
+    lv_obj_set_style_text_color(s_display_brightness_label, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(s_display_brightness_label, &lv_font_montserrat_16, 0);
+
+    s_display_brightness_slider = lv_slider_create(form);
+    style_settings_input(s_display_brightness_slider);
+    lv_obj_set_height(s_display_brightness_slider, 20);
+    lv_slider_set_range(s_display_brightness_slider, 5, 100);
+    lv_obj_add_event_cb(s_display_brightness_slider, display_brightness_slider_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    display_refresh_fields();
+    create_back_button(s_display_screen, sub_back_cb);
+}
+
 static lv_obj_t *create_menu_button_grid(lv_obj_t *grid, const char *label, lv_event_cb_t cb, int col, int row)
 {
     lv_obj_t *btn = lv_button_create(grid);
@@ -1341,6 +1456,7 @@ static void create_hub_screen(void)
     create_menu_button_grid(menu, "Filter Calibration", menu_filter_cb, 0, 3);
     create_menu_button_grid(menu, "Maintenance Mode", menu_maintenance_cb, 1, 3);
     create_menu_button_grid(menu, "Automatic Feeder", menu_feeder_cb, 0, 4);
+    create_menu_button_grid(menu, "Display", menu_display_cb, 1, 4);
 
     create_back_button(s_hub_screen, hub_back_cb);
 }
@@ -2202,6 +2318,7 @@ void screen_settings_create(void)
     create_time_screen();
     create_co2_screen();
     create_feeder_screen();
+    create_display_screen();
     create_filter_screen();
     ui_nav_set_settings_screen(s_hub_screen);
 }

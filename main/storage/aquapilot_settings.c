@@ -25,6 +25,11 @@ static const char *LEGACY_TEMP_KEY = "temp_range_v1";
 #define SETTINGS_MAGIC_V12 0x4151503Cu /* AQP12 */
 #define SETTINGS_MAGIC_V13 0x4151503Du /* AQP13 */
 #define SETTINGS_MAGIC_V14 0x4151503Eu /* AQP14 */
+#define SETTINGS_MAGIC_V15 0x4151503Fu /* AQP15 */
+
+#define DEFAULT_DISPLAY_BRIGHTNESS_PCT 100
+#define DISPLAY_BRIGHTNESS_MIN         5
+#define DISPLAY_BRIGHTNESS_MAX         100
 
 #define DEFAULT_FEEDER_START_H          8
 #define DEFAULT_FEEDER_START_M          0
@@ -380,6 +385,46 @@ typedef struct __attribute__((packed)) {
     uint8_t feeder_times_per_day;
     uint16_t feeder_amount_seconds;
     char feeder_host[SHELLY_ADDR_LEN];
+} settings_blob_v14_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t co2_on_h;
+    uint8_t co2_on_m;
+    uint8_t co2_off_h;
+    uint8_t co2_off_m;
+    uint8_t filter_calibrated;
+    uint8_t heater_setpoint_valid;
+    float heater_setpoint_f;
+    float temp_delta_plus_f;
+    float temp_delta_minus_f;
+    char shelly_heater[SHELLY_ADDR_LEN];
+    char shelly_filter[SHELLY_ADDR_LEN];
+    char shelly_co2[SHELLY_ADDR_LEN];
+    uint8_t heater_override_enabled;
+    uint8_t wifi_time_enabled;
+    uint8_t manual_time_valid;
+    uint8_t reserved;
+    int64_t manual_epoch;
+    char timezone[AQUAPILOT_TIMEZONE_MAX];
+    uint8_t co2_power_monitor_enabled;
+    uint8_t heater_shelly_power_monitor_enabled;
+    float filter_baseline_watts;
+    uint8_t filter_band_green_pct;
+    uint8_t filter_band_yellow_pct;
+    uint8_t filter_band_red_pct;
+    uint8_t filter_band_red_cutoff_pct;
+    uint8_t maintenance_mode_enabled;
+    uint8_t feeder_enabled;
+    uint8_t feeder_start_h;
+    uint8_t feeder_start_m;
+    uint8_t feeder_end_h;
+    uint8_t feeder_end_m;
+    uint8_t feeder_times_per_day;
+    uint16_t feeder_amount_seconds;
+    char feeder_host[SHELLY_ADDR_LEN];
+    uint8_t display_flip_180;
+    uint8_t display_brightness_pct;
 } settings_blob_t;
 
 typedef struct __attribute__((packed)) {
@@ -394,7 +439,7 @@ static settings_blob_t s_settings;
 static void settings_defaults(settings_blob_t *s)
 {
     memset(s, 0, sizeof(*s));
-    s->magic = SETTINGS_MAGIC_V14;
+    s->magic = SETTINGS_MAGIC_V15;
     s->co2_on_h = DEFAULT_CO2_ON_H;
     s->co2_on_m = DEFAULT_CO2_ON_M;
     s->co2_off_h = DEFAULT_CO2_OFF_H;
@@ -424,6 +469,8 @@ static void settings_defaults(settings_blob_t *s)
     s->feeder_end_m = DEFAULT_FEEDER_END_M;
     s->feeder_times_per_day = DEFAULT_FEEDER_TIMES_PER_DAY;
     s->feeder_amount_seconds = DEFAULT_FEEDER_AMOUNT_SECONDS;
+    s->display_flip_180 = 0;
+    s->display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
     s->wifi_time_enabled = 1;
     s->manual_time_valid = 0;
     s->reserved = 0;
@@ -812,10 +859,24 @@ static void upgrade_v13_blob(const settings_blob_v13_t *loaded)
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v13_t));
     s_settings.feeder_host[0] = '\0';
-    s_settings.magic = SETTINGS_MAGIC_V14;
+    s_settings.display_flip_180 = 0;
+    s_settings.display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
+    s_settings.magic = SETTINGS_MAGIC_V15;
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v13 → v14");
+    ESP_LOGI(TAG, "upgraded settings v13 → v15");
+}
+
+static void upgrade_v14_blob(const settings_blob_v14_t *loaded)
+{
+    memset(&s_settings, 0, sizeof(s_settings));
+    memcpy(&s_settings, loaded, sizeof(settings_blob_v14_t));
+    s_settings.display_flip_180 = 0;
+    s_settings.display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
+    s_settings.magic = SETTINGS_MAGIC_V15;
+    ensure_shelly_strings_null_terminated();
+    save_settings();
+    ESP_LOGI(TAG, "upgraded settings v14 → v15");
 }
 
 static void upgrade_v9_blob(const settings_blob_v9_t *loaded)
@@ -898,7 +959,7 @@ void aquapilot_settings_init(void)
     settings_blob_t loaded = {0};
     size_t size = sizeof(loaded);
     esp_err_t err = aquapilot_nvs_get_blob(NVS_KEY, &loaded, &size);
-    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V14) {
+    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V15) {
         s_settings = loaded;
         ensure_shelly_strings_null_terminated();
         float min_f = 0.0f;
@@ -906,6 +967,15 @@ void aquapilot_settings_init(void)
         compute_temp_range(&min_f, &max_f);
         ESP_LOGI(TAG, "loaded settings (setpoint %.1f F, range %.1f–%.1f F, tz %s)", effective_setpoint_f(), min_f,
                  max_f, s_settings.timezone);
+        return;
+    }
+
+    settings_blob_v14_t loaded_v14 = {0};
+    size = sizeof(loaded_v14);
+    err = aquapilot_nvs_get_blob(NVS_KEY, &loaded_v14, &size);
+    if (err == ESP_OK && size == sizeof(loaded_v14) && loaded_v14.magic == SETTINGS_MAGIC_V14) {
+        settings_defaults(&s_settings);
+        upgrade_v14_blob(&loaded_v14);
         return;
     }
 
@@ -1480,5 +1550,44 @@ bool aquapilot_settings_set_feeder_schedule(uint8_t start_h, uint8_t start_m, ui
     s_settings.feeder_amount_seconds = amount_seconds;
     ESP_LOGI(TAG, "feeder schedule %02u:%02u–%02u:%02u, %u×/day, %us", start_h, start_m, end_h, end_m,
              (unsigned)times_per_day, (unsigned)amount_seconds);
+    return save_settings();
+}
+
+bool aquapilot_settings_get_display_flip_180(bool *enabled)
+{
+    if (enabled == NULL) {
+        return false;
+    }
+    *enabled = s_settings.display_flip_180 != 0;
+    return true;
+}
+
+bool aquapilot_settings_set_display_flip_180(bool enabled)
+{
+    s_settings.display_flip_180 = enabled ? 1 : 0;
+    ESP_LOGI(TAG, "display flip 180° %s", enabled ? "enabled" : "disabled");
+    return save_settings();
+}
+
+bool aquapilot_settings_get_display_brightness(uint8_t *brightness_pct)
+{
+    if (brightness_pct == NULL) {
+        return false;
+    }
+    *brightness_pct = s_settings.display_brightness_pct;
+    return true;
+}
+
+bool aquapilot_settings_set_display_brightness(uint8_t brightness_pct)
+{
+    if (brightness_pct < DISPLAY_BRIGHTNESS_MIN) {
+        brightness_pct = DISPLAY_BRIGHTNESS_MIN;
+    }
+    if (brightness_pct > DISPLAY_BRIGHTNESS_MAX) {
+        brightness_pct = DISPLAY_BRIGHTNESS_MAX;
+    }
+
+    s_settings.display_brightness_pct = brightness_pct;
+    ESP_LOGI(TAG, "display brightness %u%%", (unsigned)brightness_pct);
     return save_settings();
 }

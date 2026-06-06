@@ -18,6 +18,8 @@
 #include "feeder/feeder_client.h"
 #include "safety/filter_calibration.h"
 #include "safety/maintenance_mode.h"
+#include "display/display_control.h"
+#include "sensors/sht3x_sensor.h"
 
 static const char *TAG = "aquapilot";
 
@@ -30,7 +32,7 @@ static lv_display_t *display_start(void)
         .flags = {
             .buff_dma = true,
             .buff_spiram = true,
-            .sw_rotate = false,
+            .sw_rotate = true,
         },
     };
 
@@ -137,11 +139,12 @@ void app_main(void)
         return;
     }
 
-    esp_err_t backlight_err = bsp_display_backlight_on();
-    if (backlight_err != ESP_OK) {
-        ESP_LOGE(TAG, "backlight on failed: %s", esp_err_to_name(backlight_err));
-    } else {
-        ESP_LOGI(TAG, "backlight on");
+    display_control_init(disp);
+    display_control_apply_saved_settings();
+
+    esp_err_t sht_err = sht3x_sensor_init();
+    if (sht_err != ESP_OK) {
+        ESP_LOGW(TAG, "SHT3x init failed (ambient tile will show --)");
     }
 
     if (!bsp_display_lock(5000)) {

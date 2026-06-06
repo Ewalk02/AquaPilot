@@ -16,18 +16,21 @@ idf_component_register(
         "ui/tile_co2_schedule.c"
         "ui/tile_settings.c"
         "ui/tile_connections.c"
+        "ui/tile_ambient.c"
         "ui/tile_light_status.c"
         "schedule/co2_schedule.c"
         "schedule/co2_automation.c"
         "schedule/feeder_service.c"
         "schedule/aquapilot_time.c"
         "sensors/temp_source.c"
+        "sensors/sht3x_sensor.c"
         "connections/connection_status.c"
         "net/wifi_manager.c"
         "net/shelly_client.c"
         "safety/heater_override.c"
         "safety/co2_power_monitor.c"
         "feeder/feeder_client.c"
+        "display/display_control.c"
         "safety/filter_power_monitor.c"
         "safety/filter_calibration.c"
         "safety/maintenance_mode.c"
@@ -55,6 +58,7 @@ idf_component_register(
         "heater"
         "light"
         "feeder"
+        "display"
     REQUIRES
         waveshare__esp32_p4_wifi6_touch_lcd_7b
         nvs_flash
@@ -67,4 +71,5 @@ idf_component_register(
         bt
         chihiros_heater_protocol
         fluval_light_protocol
+        driver
 )
