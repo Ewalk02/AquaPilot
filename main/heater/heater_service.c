@@ -230,7 +230,7 @@ const char *heater_service_source_text(void)
 {
     chihiros_status_t st;
     if (!chihiros_ble_get_status(&st)) {
-        return "BLE starting…";
+        return "BLE starting...";
     }
 
     if (st.status_valid && !st.stale) {
@@ -243,10 +243,10 @@ const char *heater_service_source_text(void)
         return "Heater connected";
     }
     if (st.connected) {
-        return "Heater pairing…";
+        return "Heater pairing...";
     }
     if (ble_central_manager_is_ready()) {
-        return "Scanning for heater…";
+        return "Scanning for heater...";
     }
-    return "BLE starting…";
+    return "BLE starting...";
 }

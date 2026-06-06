@@ -54,6 +54,7 @@ static lv_obj_t *s_filter_cal_btn;
 static lv_obj_t *s_filter_green_band_ta;
 static lv_obj_t *s_filter_yellow_band_ta;
 static lv_obj_t *s_filter_red_band_ta;
+static lv_obj_t *s_filter_red_cutoff_band_ta;
 static lv_obj_t *s_filter_band_status;
 static lv_timer_t *s_filter_ui_timer;
 static lv_obj_t *s_filter_keyboard;
@@ -475,14 +476,16 @@ static void filter_band_show_status(const char *text)
 
 static void filter_bands_refresh_fields(void)
 {
-    if (s_filter_green_band_ta == NULL || s_filter_yellow_band_ta == NULL || s_filter_red_band_ta == NULL) {
+    if (s_filter_green_band_ta == NULL || s_filter_yellow_band_ta == NULL || s_filter_red_band_ta == NULL ||
+        s_filter_red_cutoff_band_ta == NULL) {
         return;
     }
 
     uint8_t green_pct = 10;
     uint8_t yellow_pct = 25;
     uint8_t red_pct = 40;
-    aquapilot_settings_get_filter_bands(&green_pct, &yellow_pct, &red_pct);
+    uint8_t red_cutoff_pct = 50;
+    aquapilot_settings_get_filter_bands(&green_pct, &yellow_pct, &red_pct, &red_cutoff_pct);
 
     char buf[8];
     snprintf(buf, sizeof(buf), "%u", (unsigned)green_pct);
@@ -491,24 +494,28 @@ static void filter_bands_refresh_fields(void)
     lv_textarea_set_text(s_filter_yellow_band_ta, buf);
     snprintf(buf, sizeof(buf), "%u", (unsigned)red_pct);
     lv_textarea_set_text(s_filter_red_band_ta, buf);
+    snprintf(buf, sizeof(buf), "%u", (unsigned)red_cutoff_pct);
+    lv_textarea_set_text(s_filter_red_cutoff_band_ta, buf);
 }
 
 static bool filter_bands_save_from_fields(void)
 {
-    if (s_filter_green_band_ta == NULL || s_filter_yellow_band_ta == NULL || s_filter_red_band_ta == NULL) {
+    if (s_filter_green_band_ta == NULL || s_filter_yellow_band_ta == NULL || s_filter_red_band_ta == NULL ||
+        s_filter_red_cutoff_band_ta == NULL) {
         return false;
     }
 
     const int green = atoi(lv_textarea_get_text(s_filter_green_band_ta));
     const int yellow = atoi(lv_textarea_get_text(s_filter_yellow_band_ta));
     const int red = atoi(lv_textarea_get_text(s_filter_red_band_ta));
+    const int red_cutoff = atoi(lv_textarea_get_text(s_filter_red_cutoff_band_ta));
 
-    if (green < 1 || yellow <= green || red <= yellow || red > 100) {
-        filter_band_show_status("Bands must increase: green < yellow < red (max 100%).");
+    if (green < 1 || yellow <= green || red <= yellow || red_cutoff <= red || red_cutoff > 100) {
+        filter_band_show_status("Bands must increase: green < yellow < red < cutoff (max 100%).");
         return false;
     }
 
-    if (!aquapilot_settings_set_filter_bands((uint8_t)green, (uint8_t)yellow, (uint8_t)red)) {
+    if (!aquapilot_settings_set_filter_bands((uint8_t)green, (uint8_t)yellow, (uint8_t)red, (uint8_t)red_cutoff)) {
         filter_band_show_status("Invalid band percentages.");
         return false;
     }
@@ -1168,7 +1175,8 @@ static void create_filter_screen(void)
 
     lv_obj_t *band_hint = lv_label_create(form);
     lv_label_set_text(band_hint,
-                      "Gauge bands (% of calibrated baseline). Yellow must be wider than green; red widest.");
+                      "Gauge bands (% of baseline). Order: green < yellow < red < cutoff. "
+                      "Cutoff sets the outer edges of the red gauge bars.");
     lv_obj_set_style_text_color(band_hint, lv_color_hex(STATUS_COLOR), 0);
     lv_obj_set_style_text_font(band_hint, &lv_font_montserrat_16, 0);
     lv_obj_set_width(band_hint, LV_PCT(100));
@@ -1181,6 +1189,9 @@ static void create_filter_screen(void)
 
     create_field_label(form, "Red band +/- (%)");
     s_filter_red_band_ta = create_one_line_field(form, "40");
+
+    create_field_label(form, "Red band cutoff +/- (%)");
+    s_filter_red_cutoff_band_ta = create_one_line_field(form, "50");
 
     s_filter_band_status = lv_label_create(form);
     lv_label_set_text(s_filter_band_status, "");
@@ -1197,6 +1208,7 @@ static void create_filter_screen(void)
     attach_filter_band_field(s_filter_green_band_ta);
     attach_filter_band_field(s_filter_yellow_band_ta);
     attach_filter_band_field(s_filter_red_band_ta);
+    attach_filter_band_field(s_filter_red_cutoff_band_ta);
     filter_bands_refresh_fields();
 
     create_back_button(s_filter_screen, filter_back_cb);

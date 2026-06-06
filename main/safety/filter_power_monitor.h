@@ -34,5 +34,8 @@ bool filter_power_monitor_is_normal(void);
 
 bool filter_power_monitor_alarm_active(void);
 
-/** Compute gauge scale max (W) from baseline and red band setting. */
+/** Compute gauge scale range (W) from baseline and red cutoff band setting. */
+bool filter_power_monitor_get_gauge_range(float *min_watts, float *max_watts);
+
+/** @deprecated Use filter_power_monitor_get_gauge_range. */
 bool filter_power_monitor_get_gauge_max_watts(float *max_watts);

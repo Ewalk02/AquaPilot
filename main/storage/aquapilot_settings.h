@@ -28,8 +28,10 @@ bool aquapilot_settings_get_filter_calibrated(bool *calibrated);
 bool aquapilot_settings_set_filter_calibrated(bool calibrated);
 bool aquapilot_settings_get_filter_baseline_watts(float *watts);
 bool aquapilot_settings_set_filter_baseline_watts(float watts);
-bool aquapilot_settings_get_filter_bands(uint8_t *green_pct, uint8_t *yellow_pct, uint8_t *red_pct);
-bool aquapilot_settings_set_filter_bands(uint8_t green_pct, uint8_t yellow_pct, uint8_t red_pct);
+bool aquapilot_settings_get_filter_bands(uint8_t *green_pct, uint8_t *yellow_pct, uint8_t *red_pct,
+                                         uint8_t *red_cutoff_pct);
+bool aquapilot_settings_set_filter_bands(uint8_t green_pct, uint8_t yellow_pct, uint8_t red_pct,
+                                         uint8_t red_cutoff_pct);
 
 bool aquapilot_settings_has_heater_setpoint(void);
 bool aquapilot_settings_get_heater_setpoint(float *setpoint_f);

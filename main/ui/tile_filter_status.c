@@ -3,17 +3,13 @@
 #include "safety/filter_power_monitor.h"
 #include "tile_common.h"
 
-#define TILE_TITLE_COLOR   0x8B949E
-#define TILE_VALUE_ON      0x3FB950
-#define TILE_VALUE_OFF     0xFF4444
-#define TILE_ON_BG         0x13261B
-#define TILE_ON_BORDER     0x3FB950
-#define TILE_OFF_BG        0x3D0A0A
-#define TILE_OFF_BORDER    0xFF4444
-#define TILE_DEFAULT_BG    0x161B22
-#define TILE_DEFAULT_BORDER 0x30363D
-
-static bool s_last_display_on;
+#define TILE_TITLE_COLOR    0x8B949E
+#define TILE_VALUE_ON       0x3FB950
+#define TILE_VALUE_OFF      0xFF4444
+#define TILE_ON_BG          0x13261B
+#define TILE_ON_BORDER      0x3FB950
+#define TILE_OFF_BG         0x3D0A0A
+#define TILE_OFF_BORDER     0xFF4444
 
 static void apply_panel_colors(lv_obj_t *root, uint32_t bg, uint32_t border)
 {
@@ -57,10 +53,6 @@ void tile_filter_status_update(tile_filter_status_t *tile)
     }
 
     const bool on = filter_power_monitor_is_filter_on();
-    if (on == s_last_display_on) {
-        return;
-    }
-    s_last_display_on = on;
 
     tile_restore_value_label(tile->value_label, on ? TILE_VALUE_ON : TILE_VALUE_OFF);
     lv_label_set_text(tile->value_label, on ? "ON" : "OFF");

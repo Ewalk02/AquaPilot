@@ -5,9 +5,10 @@
 typedef struct {
     lv_obj_t *root;
     lv_obj_t *gauge_container;
-    lv_obj_t *scale;
-    lv_obj_t *needle;
     lv_obj_t *value_label;
+    lv_obj_t *bar_row;
+    lv_obj_t *marker;
+    lv_obj_t *scale_labels;
     lv_obj_t *hint_label;
 } tile_filter_watts_t;
 

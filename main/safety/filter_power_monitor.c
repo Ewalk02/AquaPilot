@@ -21,28 +21,16 @@ static volatile bool s_plug_online;
 static volatile bool s_filter_on;
 static volatile uint16_t s_cached_watts;
 static int64_t s_alarm_condition_since_us;
-static uint8_t s_on_streak;
-static uint8_t s_read_fail_streak;
 static uint8_t s_high_watts_streak;
+static uint8_t s_low_watts_streak;
+static uint8_t s_read_fail_streak;
 
-#define FILTER_ON_DEBOUNCE 2
+#define FILTER_ON_DEBOUNCE  2
+#define FILTER_OFF_DEBOUNCE 2
 
 static void set_filter_off(void)
 {
-    s_on_streak = 0;
     s_filter_on = false;
-}
-
-static void update_filter_on(bool raw_on)
-{
-    if (raw_on) {
-        s_on_streak++;
-        if (s_on_streak >= FILTER_ON_DEBOUNCE) {
-            s_filter_on = true;
-        }
-    } else {
-        set_filter_off();
-    }
 }
 
 static void invalidate_reading(void)
@@ -50,6 +38,7 @@ static void invalidate_reading(void)
     s_watts_valid = false;
     s_read_fail_streak = 0;
     s_high_watts_streak = 0;
+    s_low_watts_streak = 0;
     set_filter_off();
 }
 
@@ -79,18 +68,21 @@ static void refresh_watts(void)
 
         if (watts <= FILTER_MIN_RUNNING_WATTS) {
             s_high_watts_streak = 0;
-            s_cached_watts = watts;
-            s_watts_valid = true;
-            set_filter_off();
-            ESP_LOGI(TAG, "filter watts %u", (unsigned)watts);
+            if (++s_low_watts_streak >= FILTER_OFF_DEBOUNCE) {
+                s_cached_watts = watts;
+                s_watts_valid = true;
+                set_filter_off();
+                ESP_LOGI(TAG, "filter watts %u", (unsigned)watts);
+            }
             return;
         }
 
+        s_low_watts_streak = 0;
         s_high_watts_streak++;
-        if (s_high_watts_streak >= 2) {
+        if (s_high_watts_streak >= FILTER_ON_DEBOUNCE) {
             s_cached_watts = watts;
             s_watts_valid = true;
-            update_filter_on(true);
+            s_filter_on = true;
             ESP_LOGI(TAG, "filter watts %u", (unsigned)watts);
         }
         return;
@@ -110,7 +102,7 @@ static bool compute_band_edges(float baseline, float *green_lo, float *green_hi,
     uint8_t green_pct = 0;
     uint8_t yellow_pct = 0;
     uint8_t red_pct = 0;
-    if (!aquapilot_settings_get_filter_bands(&green_pct, &yellow_pct, &red_pct)) {
+    if (!aquapilot_settings_get_filter_bands(&green_pct, &yellow_pct, &red_pct, NULL)) {
         return false;
     }
 
@@ -243,9 +235,9 @@ bool filter_power_monitor_alarm_active(void)
     return s_alarm_active;
 }
 
-bool filter_power_monitor_get_gauge_max_watts(float *max_watts)
+bool filter_power_monitor_get_gauge_range(float *min_watts, float *max_watts)
 {
-    if (max_watts == NULL) {
+    if (min_watts == NULL || max_watts == NULL) {
         return false;
     }
 
@@ -254,16 +246,24 @@ bool filter_power_monitor_get_gauge_max_watts(float *max_watts)
         return false;
     }
 
-    uint8_t green_pct = 0;
-    uint8_t yellow_pct = 0;
-    uint8_t red_pct = 0;
-    if (!aquapilot_settings_get_filter_bands(&green_pct, &yellow_pct, &red_pct)) {
+    uint8_t cutoff_pct = 0;
+    if (!aquapilot_settings_get_filter_bands(NULL, NULL, NULL, &cutoff_pct)) {
         return false;
     }
 
-    *max_watts = baseline * (100.0f + (float)red_pct) / 100.0f * 1.1f;
-    if (*max_watts < baseline + 1.0f) {
-        *max_watts = baseline + 1.0f;
+    *min_watts = baseline * (100.0f - (float)cutoff_pct) / 100.0f;
+    *max_watts = baseline * (100.0f + (float)cutoff_pct) / 100.0f;
+    if (*min_watts < 0.0f) {
+        *min_watts = 0.0f;
+    }
+    if (*max_watts <= *min_watts) {
+        *max_watts = *min_watts + 1.0f;
     }
     return true;
+}
+
+bool filter_power_monitor_get_gauge_max_watts(float *max_watts)
+{
+    float min_watts = 0.0f;
+    return filter_power_monitor_get_gauge_range(&min_watts, max_watts);
 }

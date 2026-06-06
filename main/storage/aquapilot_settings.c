@@ -21,10 +21,12 @@ static const char *LEGACY_TEMP_KEY = "temp_range_v1";
 #define SETTINGS_MAGIC_V8 0x41515038u /* AQP8 */
 #define SETTINGS_MAGIC_V9  0x41515039u /* AQP9 */
 #define SETTINGS_MAGIC_V10 0x4151503Au /* AQP10 */
+#define SETTINGS_MAGIC_V11 0x4151503Bu /* AQP11 */
 
-#define DEFAULT_FILTER_BAND_GREEN_PCT  10
-#define DEFAULT_FILTER_BAND_YELLOW_PCT 25
-#define DEFAULT_FILTER_BAND_RED_PCT    40
+#define DEFAULT_FILTER_BAND_GREEN_PCT   10
+#define DEFAULT_FILTER_BAND_YELLOW_PCT  25
+#define DEFAULT_FILTER_BAND_RED_PCT     40
+#define DEFAULT_FILTER_BAND_RED_CUTOFF_PCT 50
 
 #define DEFAULT_SETPOINT_F      77.0f
 #define DEFAULT_DELTA_PLUS_F    5.0f
@@ -230,6 +232,35 @@ typedef struct __attribute__((packed)) {
     uint8_t filter_band_green_pct;
     uint8_t filter_band_yellow_pct;
     uint8_t filter_band_red_pct;
+} settings_blob_v10_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t co2_on_h;
+    uint8_t co2_on_m;
+    uint8_t co2_off_h;
+    uint8_t co2_off_m;
+    uint8_t filter_calibrated;
+    uint8_t heater_setpoint_valid;
+    float heater_setpoint_f;
+    float temp_delta_plus_f;
+    float temp_delta_minus_f;
+    char shelly_heater[SHELLY_ADDR_LEN];
+    char shelly_filter[SHELLY_ADDR_LEN];
+    char shelly_co2[SHELLY_ADDR_LEN];
+    uint8_t heater_override_enabled;
+    uint8_t wifi_time_enabled;
+    uint8_t manual_time_valid;
+    uint8_t reserved;
+    int64_t manual_epoch;
+    char timezone[AQUAPILOT_TIMEZONE_MAX];
+    uint8_t co2_power_monitor_enabled;
+    uint8_t heater_shelly_power_monitor_enabled;
+    float filter_baseline_watts;
+    uint8_t filter_band_green_pct;
+    uint8_t filter_band_yellow_pct;
+    uint8_t filter_band_red_pct;
+    uint8_t filter_band_red_cutoff_pct;
 } settings_blob_t;
 
 typedef struct __attribute__((packed)) {
@@ -244,7 +275,7 @@ static settings_blob_t s_settings;
 static void settings_defaults(settings_blob_t *s)
 {
     memset(s, 0, sizeof(*s));
-    s->magic = SETTINGS_MAGIC_V10;
+    s->magic = SETTINGS_MAGIC_V11;
     s->co2_on_h = DEFAULT_CO2_ON_H;
     s->co2_on_m = DEFAULT_CO2_ON_M;
     s->co2_off_h = DEFAULT_CO2_OFF_H;
@@ -264,6 +295,7 @@ static void settings_defaults(settings_blob_t *s)
     s->filter_band_green_pct = DEFAULT_FILTER_BAND_GREEN_PCT;
     s->filter_band_yellow_pct = DEFAULT_FILTER_BAND_YELLOW_PCT;
     s->filter_band_red_pct = DEFAULT_FILTER_BAND_RED_PCT;
+    s->filter_band_red_cutoff_pct = DEFAULT_FILTER_BAND_RED_CUTOFF_PCT;
     s->wifi_time_enabled = 1;
     s->manual_time_valid = 0;
     s->reserved = 0;
@@ -282,11 +314,13 @@ static void apply_filter_band_defaults(void)
     s_settings.filter_band_green_pct = DEFAULT_FILTER_BAND_GREEN_PCT;
     s_settings.filter_band_yellow_pct = DEFAULT_FILTER_BAND_YELLOW_PCT;
     s_settings.filter_band_red_pct = DEFAULT_FILTER_BAND_RED_PCT;
+    s_settings.filter_band_red_cutoff_pct = DEFAULT_FILTER_BAND_RED_CUTOFF_PCT;
 }
 
-static bool filter_bands_valid(uint8_t green_pct, uint8_t yellow_pct, uint8_t red_pct)
+static bool filter_bands_valid(uint8_t green_pct, uint8_t yellow_pct, uint8_t red_pct, uint8_t red_cutoff_pct)
 {
-    return green_pct >= 1 && yellow_pct > green_pct && red_pct > yellow_pct && red_pct <= 100;
+    return green_pct >= 1 && yellow_pct > green_pct && red_pct > yellow_pct && red_cutoff_pct > red_pct &&
+           red_cutoff_pct <= 100;
 }
 
 static void ensure_shelly_strings_null_terminated(void)
@@ -480,7 +514,7 @@ static void upgrade_v2_blob(const settings_blob_v2_t *loaded)
     s_settings.filter_baseline_watts = 0.0f;
     s_settings.filter_calibrated = 0;
     apply_filter_band_defaults();
-    s_settings.magic = SETTINGS_MAGIC_V10;
+    s_settings.magic = SETTINGS_MAGIC_V11;
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v2 → v10 (setpoint %.1f F, Δ- %.1f, Δ+ %.1f)", setpoint_f,
              s_settings.temp_delta_minus_f, s_settings.temp_delta_plus_f);
@@ -507,7 +541,7 @@ static void upgrade_v3_blob(const settings_blob_v3_t *loaded)
     s_settings.filter_calibrated = 0;
     s_settings.reserved = 0;
     apply_filter_band_defaults();
-    s_settings.magic = SETTINGS_MAGIC_V10;
+    s_settings.magic = SETTINGS_MAGIC_V11;
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v3 → v10");
 }
@@ -538,7 +572,7 @@ static void upgrade_v5_blob(const settings_blob_v5_t *loaded)
     s_settings.filter_baseline_watts = 0.0f;
     s_settings.filter_calibrated = 0;
     apply_filter_band_defaults();
-    s_settings.magic = SETTINGS_MAGIC_V10;
+    s_settings.magic = SETTINGS_MAGIC_V11;
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v5 → v10");
@@ -565,7 +599,7 @@ static void upgrade_v4_blob(const settings_blob_v4_t *loaded)
     s_settings.filter_calibrated = 0;
     s_settings.reserved = 0;
     apply_filter_band_defaults();
-    s_settings.magic = SETTINGS_MAGIC_V10;
+    s_settings.magic = SETTINGS_MAGIC_V11;
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v4 → v10");
@@ -580,7 +614,7 @@ static void upgrade_v6_blob(const settings_blob_v6_t *loaded)
     s_settings.filter_baseline_watts = 0.0f;
     s_settings.filter_calibrated = 0;
     apply_filter_band_defaults();
-    s_settings.magic = SETTINGS_MAGIC_V10;
+    s_settings.magic = SETTINGS_MAGIC_V11;
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v6 → v10");
@@ -593,10 +627,21 @@ static void upgrade_v7_blob(const settings_blob_v7_t *loaded)
     s_settings.heater_shelly_power_monitor_enabled = 0;
     s_settings.filter_baseline_watts = 0.0f;
     apply_filter_band_defaults();
-    s_settings.magic = SETTINGS_MAGIC_V10;
+    s_settings.magic = SETTINGS_MAGIC_V11;
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v7 → v10");
+}
+
+static void upgrade_v10_blob(const settings_blob_v10_t *loaded)
+{
+    memset(&s_settings, 0, sizeof(s_settings));
+    memcpy(&s_settings, loaded, sizeof(settings_blob_v10_t));
+    s_settings.filter_band_red_cutoff_pct = DEFAULT_FILTER_BAND_RED_CUTOFF_PCT;
+    s_settings.magic = SETTINGS_MAGIC_V11;
+    ensure_shelly_strings_null_terminated();
+    save_settings();
+    ESP_LOGI(TAG, "upgraded settings v10 → v11");
 }
 
 static void upgrade_v9_blob(const settings_blob_v9_t *loaded)
@@ -606,10 +651,11 @@ static void upgrade_v9_blob(const settings_blob_v9_t *loaded)
     s_settings.filter_band_green_pct = DEFAULT_FILTER_BAND_GREEN_PCT;
     s_settings.filter_band_yellow_pct = DEFAULT_FILTER_BAND_YELLOW_PCT;
     s_settings.filter_band_red_pct = DEFAULT_FILTER_BAND_RED_PCT;
-    s_settings.magic = SETTINGS_MAGIC_V10;
+    s_settings.filter_band_red_cutoff_pct = DEFAULT_FILTER_BAND_RED_CUTOFF_PCT;
+    s_settings.magic = SETTINGS_MAGIC_V11;
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v9 → v10");
+    ESP_LOGI(TAG, "upgraded settings v9 → v11");
 }
 
 static void upgrade_v8_blob(const settings_blob_v8_t *loaded)
@@ -625,10 +671,11 @@ static void upgrade_v8_blob(const settings_blob_v8_t *loaded)
     s_settings.filter_band_green_pct = DEFAULT_FILTER_BAND_GREEN_PCT;
     s_settings.filter_band_yellow_pct = DEFAULT_FILTER_BAND_YELLOW_PCT;
     s_settings.filter_band_red_pct = DEFAULT_FILTER_BAND_RED_PCT;
-    s_settings.magic = SETTINGS_MAGIC_V10;
+    s_settings.filter_band_red_cutoff_pct = DEFAULT_FILTER_BAND_RED_CUTOFF_PCT;
+    s_settings.magic = SETTINGS_MAGIC_V11;
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v8 → v10");
+    ESP_LOGI(TAG, "upgraded settings v8 → v11");
 }
 
 static void migrate_legacy_temp_range(void)
@@ -677,7 +724,7 @@ void aquapilot_settings_init(void)
     settings_blob_t loaded = {0};
     size_t size = sizeof(loaded);
     esp_err_t err = aquapilot_nvs_get_blob(NVS_KEY, &loaded, &size);
-    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V10) {
+    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V11) {
         s_settings = loaded;
         ensure_shelly_strings_null_terminated();
         float min_f = 0.0f;
@@ -685,6 +732,15 @@ void aquapilot_settings_init(void)
         compute_temp_range(&min_f, &max_f);
         ESP_LOGI(TAG, "loaded settings (setpoint %.1f F, range %.1f–%.1f F, tz %s)", effective_setpoint_f(), min_f,
                  max_f, s_settings.timezone);
+        return;
+    }
+
+    settings_blob_v10_t loaded_v10 = {0};
+    size = sizeof(loaded_v10);
+    err = aquapilot_nvs_get_blob(NVS_KEY, &loaded_v10, &size);
+    if (err == ESP_OK && size == sizeof(loaded_v10) && loaded_v10.magic == SETTINGS_MAGIC_V10) {
+        settings_defaults(&s_settings);
+        upgrade_v10_blob(&loaded_v10);
         return;
     }
 
@@ -880,28 +936,37 @@ bool aquapilot_settings_set_filter_baseline_watts(float watts)
     return save_settings();
 }
 
-bool aquapilot_settings_get_filter_bands(uint8_t *green_pct, uint8_t *yellow_pct, uint8_t *red_pct)
+bool aquapilot_settings_get_filter_bands(uint8_t *green_pct, uint8_t *yellow_pct, uint8_t *red_pct,
+                                         uint8_t *red_cutoff_pct)
 {
-    if (green_pct == NULL || yellow_pct == NULL || red_pct == NULL) {
-        return false;
+    if (green_pct != NULL) {
+        *green_pct = s_settings.filter_band_green_pct;
     }
-
-    *green_pct = s_settings.filter_band_green_pct;
-    *yellow_pct = s_settings.filter_band_yellow_pct;
-    *red_pct = s_settings.filter_band_red_pct;
+    if (yellow_pct != NULL) {
+        *yellow_pct = s_settings.filter_band_yellow_pct;
+    }
+    if (red_pct != NULL) {
+        *red_pct = s_settings.filter_band_red_pct;
+    }
+    if (red_cutoff_pct != NULL) {
+        *red_cutoff_pct = s_settings.filter_band_red_cutoff_pct;
+    }
     return true;
 }
 
-bool aquapilot_settings_set_filter_bands(uint8_t green_pct, uint8_t yellow_pct, uint8_t red_pct)
+bool aquapilot_settings_set_filter_bands(uint8_t green_pct, uint8_t yellow_pct, uint8_t red_pct,
+                                         uint8_t red_cutoff_pct)
 {
-    if (!filter_bands_valid(green_pct, yellow_pct, red_pct)) {
+    if (!filter_bands_valid(green_pct, yellow_pct, red_pct, red_cutoff_pct)) {
         return false;
     }
 
     s_settings.filter_band_green_pct = green_pct;
     s_settings.filter_band_yellow_pct = yellow_pct;
     s_settings.filter_band_red_pct = red_pct;
-    ESP_LOGI(TAG, "filter bands green±%u%% yellow±%u%% red±%u%%", green_pct, yellow_pct, red_pct);
+    s_settings.filter_band_red_cutoff_pct = red_cutoff_pct;
+    ESP_LOGI(TAG, "filter bands green±%u%% yellow±%u%% red±%u%% cutoff±%u%%", green_pct, yellow_pct, red_pct,
+             red_cutoff_pct);
     return save_settings();
 }
 
