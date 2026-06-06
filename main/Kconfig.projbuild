@@ -1,0 +1,23 @@
+menu "AquaPilot Configuration"
+
+    config ESP_WIFI_SSID
+        string "Default WiFi SSID"
+        default ""
+        help
+            Optional default SSID (2.4 GHz). Saved credentials in NVS take precedence.
+            You can also enter credentials on the Settings screen.
+
+    config ESP_WIFI_PASSWORD
+        string "Default WiFi Password"
+        default ""
+        help
+            Optional default Wi-Fi password. Leave empty for open networks.
+
+    config AQUAPILOT_HEATER_BLE_NAME_PREFIX
+        string "Chihiros heater BLE name prefix"
+        default "DYH1"
+        help
+            Advertised BLE name prefix for the Chihiros aquarium heater.
+            Scan connects to the first device whose name starts with this prefix.
+
+endmenu
