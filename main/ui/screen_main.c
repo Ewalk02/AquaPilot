@@ -7,6 +7,7 @@
 #include "tile_connections.h"
 #include "tile_filter_status.h"
 #include "tile_filter_watts.h"
+#include "tile_feeder_status.h"
 #include "tile_heater_power.h"
 #include "tile_light_status.h"
 #include "tile_settings.h"
@@ -25,6 +26,7 @@ static tile_heater_power_t s_heater_power_tile;
 static tile_connections_t s_connections_tile;
 static tile_ambient_t s_ambient_tile;
 static tile_light_status_t s_light_status_tile;
+static tile_feeder_status_t s_feeder_status_tile;
 
 static void update_timer_cb(lv_timer_t *timer)
 {
@@ -38,6 +40,7 @@ static void update_timer_cb(lv_timer_t *timer)
     tile_light_status_update(&s_light_status_tile);
     tile_connections_update(&s_connections_tile);
     tile_ambient_update(&s_ambient_tile);
+    tile_feeder_status_update(&s_feeder_status_tile);
 }
 
 static void heater_power_timer_cb(lv_timer_t *timer)
@@ -121,7 +124,9 @@ screen_main_t screen_main_create(void)
     grid_add_cell(grid, s_light_status_tile.root, 0, 2);
 
     add_empty_cell(grid, 1, 2);
-    add_empty_cell(grid, 2, 2);
+
+    s_feeder_status_tile = tile_feeder_status_create(grid);
+    grid_add_cell(grid, s_feeder_status_tile.root, 2, 2);
 
     lv_obj_t *bottom_bar = lv_obj_create(grid);
     lv_obj_remove_style_all(bottom_bar);

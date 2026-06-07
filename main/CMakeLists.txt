@@ -13,6 +13,7 @@ idf_component_register(
         "ui/tile_co2_status.c"
         "ui/tile_filter_status.c"
         "ui/tile_filter_watts.c"
+        "ui/tile_feeder_status.c"
         "ui/tile_co2_schedule.c"
         "ui/tile_settings.c"
         "ui/tile_connections.c"

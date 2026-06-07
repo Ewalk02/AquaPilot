@@ -117,6 +117,61 @@ static int next_slot_index(int now_min, int now_sec, int start_min, int end_min,
     return best_slot;
 }
 
+static int effective_next_slot(int now_min, int now_sec, int start_min, int end_min, int times)
+{
+    int slot = next_slot_index(now_min, now_sec, start_min, end_min, times);
+    if (slot < 0) {
+        return -1;
+    }
+
+    if (s_skip_next && slot == s_skip_slot) {
+        int best_slot = -1;
+        int best_seconds = 24 * 60 * 60;
+        for (int candidate = 0; candidate < times; candidate++) {
+            if (candidate == s_skip_slot) {
+                continue;
+            }
+            const int slot_min = slot_minute(candidate, start_min, end_min, times);
+            const int secs = seconds_until_slot(now_min, now_sec, slot_min);
+            if (secs < best_seconds) {
+                best_seconds = secs;
+                best_slot = candidate;
+            }
+        }
+        return best_slot;
+    }
+
+    return slot;
+}
+
+static void format_duration(uint32_t seconds, char *buf, size_t len)
+{
+    if (buf == NULL || len == 0) {
+        return;
+    }
+
+    if (seconds >= 24U * 3600U) {
+        const unsigned hours = seconds / 3600U;
+        const unsigned mins = (seconds % 3600U) / 60U;
+        snprintf(buf, len, "%uh %um", hours, mins);
+        return;
+    }
+
+    if (seconds >= 3600U) {
+        const unsigned hours = seconds / 3600U;
+        const unsigned mins = (seconds % 3600U) / 60U;
+        snprintf(buf, len, "%uh %um", hours, mins);
+        return;
+    }
+
+    if (seconds >= 60U) {
+        snprintf(buf, len, "%um", (unsigned)(seconds / 60U));
+        return;
+    }
+
+    snprintf(buf, len, "%us", (unsigned)seconds);
+}
+
 static void set_status(const char *text)
 {
     if (text == NULL) {
@@ -289,6 +344,77 @@ bool feeder_service_is_ready(void)
 const char *feeder_service_status_text(void)
 {
     return s_status;
+}
+
+bool feeder_service_get_times_per_day(uint8_t *times_per_day)
+{
+    if (times_per_day == NULL) {
+        return false;
+    }
+
+    int start_min = 0;
+    int end_min = 0;
+    int times = 0;
+    uint16_t amount_seconds = 0;
+    if (!read_schedule(&start_min, &end_min, &times, &amount_seconds) || times <= 0) {
+        return false;
+    }
+
+    *times_per_day = (uint8_t)times;
+    return true;
+}
+
+void feeder_service_format_countdown(char *buf, size_t len)
+{
+    if (buf == NULL || len == 0) {
+        return;
+    }
+
+    if (s_feeding) {
+        snprintf(buf, len, "Feeding now");
+        return;
+    }
+
+    bool enabled = false;
+    if (!aquapilot_settings_get_feeder_enabled(&enabled) || !enabled) {
+        buf[0] = '\0';
+        return;
+    }
+
+    if (!aquapilot_time_is_ready()) {
+        snprintf(buf, len, "Waiting for time sync...");
+        return;
+    }
+
+    int start_min = 0;
+    int end_min = 0;
+    int times = 0;
+    uint16_t amount_seconds = 0;
+    if (!read_schedule(&start_min, &end_min, &times, &amount_seconds)) {
+        snprintf(buf, len, "Schedule unavailable");
+        return;
+    }
+
+    int yday = 0;
+    int now_min = 0;
+    int now_sec = 0;
+    if (!get_local_time_parts(&yday, &now_min, &now_sec)) {
+        snprintf(buf, len, "Time unavailable");
+        return;
+    }
+
+    const int slot = effective_next_slot(now_min, now_sec, start_min, end_min, times);
+    if (slot < 0) {
+        snprintf(buf, len, "No feedings scheduled");
+        return;
+    }
+
+    const int slot_min = slot_minute(slot, start_min, end_min, times);
+    const uint32_t secs = (uint32_t)seconds_until_slot(now_min, now_sec, slot_min);
+
+    char duration[24];
+    format_duration(secs, duration, sizeof(duration));
+    snprintf(buf, len, "Next in %s", duration);
 }
 
 void feeder_service_format_schedule_preview(char *buf, size_t len)
