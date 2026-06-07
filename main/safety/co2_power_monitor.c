@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "net/lan_http.h"
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
 #include "safety/filter_calibration.h"
@@ -25,6 +26,10 @@ static int64_t s_alarm_condition_since_us;
 static void refresh_watts(void)
 {
     if (filter_calibration_is_active()) {
+        return;
+    }
+
+    if (lan_http_should_defer()) {
         return;
     }
 

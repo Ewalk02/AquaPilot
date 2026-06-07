@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "heater_console.h"
+#include "light/fluval_ble.h"
 #include "light/light_service.h"
 #include "net/wifi_manager.h"
 #include "storage/aquapilot_settings.h"
@@ -19,7 +20,7 @@
 
 static const char *TAG = "heater_svc";
 
-#define BLE_TICK_MS           1000
+#define BLE_TICK_MS           2000
 #define TEMP_POLL_INTERVAL_MS (15 * 60 * 1000)
 #define WIFI_DEFER_TIMEOUT_MS 45000
 
@@ -116,7 +117,9 @@ static void ble_tick_task(void *arg)
             request_wifi_sta_if_needed("heater status received");
         }
 
-        try_apply_saved_setpoint();
+        if (!fluval_ble_is_poll_window_active()) {
+            try_apply_saved_setpoint();
+        }
 
         vTaskDelay(pdMS_TO_TICKS(BLE_TICK_MS));
     }

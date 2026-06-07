@@ -6,7 +6,8 @@
 
 void aquapilot_settings_init(void);
 
-#define AQUAPILOT_SHELLY_ADDR_MAX 64
+#define AQUAPILOT_SHELLY_ADDR_MAX     64
+#define AQUAPILOT_SHELLY_PASSWORD_MAX 32
 #define AQUAPILOT_FEEDER_HOST_MAX 64
 #define AQUAPILOT_TIMEZONE_MAX    32
 
@@ -42,6 +43,10 @@ bool aquapilot_settings_get_shelly_address(aquapilot_shelly_plug_t plug, char *b
 bool aquapilot_settings_has_shelly_address(aquapilot_shelly_plug_t plug);
 bool aquapilot_settings_set_shelly_address(aquapilot_shelly_plug_t plug, const char *address);
 bool aquapilot_settings_set_shelly_addresses(const char *heater, const char *filter, const char *co2);
+
+/** Gen2/3/4 digest auth password (username is always "admin"). Empty = no auth. */
+bool aquapilot_settings_get_shelly_password(char *buf, size_t buf_len);
+bool aquapilot_settings_set_shelly_password(const char *password);
 
 bool aquapilot_settings_get_feeder_host(char *buf, size_t buf_len);
 bool aquapilot_settings_has_feeder_host(void);

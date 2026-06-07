@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "net/lan_http.h"
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
 #include "safety/filter_calibration.h"
@@ -11,7 +12,8 @@
 
 static const char *TAG = "filter_power";
 
-#define MONITOR_INTERVAL_MS  2000
+#define MONITOR_INTERVAL_MS  5000
+#define POLL_PHASE_MS        500
 #define ALARM_DELAY_US       (60LL * 1000000LL)
 #define READ_FAIL_ZERO_COUNT 3
 
@@ -45,6 +47,10 @@ static void invalidate_reading(void)
 static void refresh_watts(void)
 {
     if (filter_calibration_is_active()) {
+        return;
+    }
+
+    if (lan_http_should_defer()) {
         return;
     }
 
@@ -175,6 +181,8 @@ static bool evaluate_alarm(void)
 static void monitor_task(void *arg)
 {
     (void)arg;
+
+    vTaskDelay(pdMS_TO_TICKS(POLL_PHASE_MS));
 
     while (true) {
         refresh_watts();

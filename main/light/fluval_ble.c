@@ -46,7 +46,7 @@ static bool s_release_after_poll;
 static bool s_scan_active;
 
 #define STATUS_QUERY_INTERVAL_US (10 * 1000 * 1000ULL)
-#define POLL_WINDOW_US           (35 * 1000 * 1000ULL)
+#define POLL_WINDOW_US           (22 * 1000 * 1000ULL)
 #define POLL_GATT_EXTENSION_US   (20 * 1000 * 1000ULL)
 
 static bool poll_window_active(void);
@@ -668,6 +668,12 @@ void fluval_ble_request_status(void)
 void fluval_ble_request_poll_window(void)
 {
     s_poll_window_requested = true;
+    ble_central_manager_set_light_exclusive(true);
+    ble_central_manager_cancel_discovery();
+    if (ble_central_manager_connection_owner() == BLE_CENTRAL_DRV_HEATER) {
+        ble_central_manager_disconnect_active();
+    }
+    maybe_begin_poll_window(esp_timer_get_time());
 }
 
 bool fluval_ble_is_poll_window_active(void)

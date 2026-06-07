@@ -509,6 +509,10 @@ static void chihiros_ble_tick_fn(void *arg)
         return;
     }
 
+    if (ble_central_manager_is_light_exclusive()) {
+        return;
+    }
+
     state_lock();
     if (s_status.connected && s_status.status_valid) {
         uint32_t age = now_ms() - (uint32_t)s_status.last_status_ms;
@@ -671,6 +675,10 @@ void chihiros_ble_request_reconnect(void)
 
 static void request_status_refresh(void)
 {
+    if (ble_central_manager_is_light_exclusive()) {
+        return;
+    }
+
     if (s_status.connected && s_status.subscribed) {
         s_init_phase = INIT_IDLE;
         s_init_done_ms = 0;

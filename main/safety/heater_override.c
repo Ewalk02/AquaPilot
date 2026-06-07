@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "heater/heater_service.h"
+#include "net/lan_http.h"
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
 #include "safety/filter_calibration.h"
@@ -26,6 +27,10 @@ static bool s_cached_shelly_valid;
 static bool refresh_heater_shelly_watts(void)
 {
     if (filter_calibration_is_active()) {
+        return false;
+    }
+
+    if (lan_http_should_defer()) {
         return false;
     }
 

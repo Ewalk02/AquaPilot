@@ -73,6 +73,7 @@ static lv_obj_t *s_filter_keyboard;
 static lv_obj_t *s_shelly_heater_ta;
 static lv_obj_t *s_shelly_filter_ta;
 static lv_obj_t *s_shelly_co2_ta;
+static lv_obj_t *s_shelly_password_ta;
 static lv_obj_t *s_shelly_status;
 static lv_obj_t *s_heater_override_sw;
 static lv_obj_t *s_heater_shelly_power_monitor_sw;
@@ -800,7 +801,15 @@ static bool shelly_save_from_fields(void)
         return false;
     }
 
-    shelly_show_status("Shelly addresses saved.");
+    if (s_shelly_password_ta != NULL) {
+        const char *pass_txt = lv_textarea_get_text(s_shelly_password_ta);
+        if (!aquapilot_settings_set_shelly_password(pass_txt != NULL ? pass_txt : "")) {
+            shelly_show_status("Could not save Shelly password.");
+            return false;
+        }
+    }
+
+    shelly_show_status("Shelly settings saved.");
     return true;
 }
 
@@ -819,6 +828,11 @@ static void shelly_refresh_fields(void)
     if (s_shelly_co2_ta != NULL) {
         aquapilot_settings_get_shelly_address(AQUAPILOT_SHELLY_CO2, buf, sizeof(buf));
         shelly_set_field_text(s_shelly_co2_ta, buf);
+    }
+    if (s_shelly_password_ta != NULL) {
+        char pass[AQUAPILOT_SHELLY_PASSWORD_MAX + 1];
+        aquapilot_settings_get_shelly_password(pass, sizeof(pass));
+        lv_textarea_set_text(s_shelly_password_ta, pass);
     }
 
     shelly_show_status("");
@@ -1960,7 +1974,9 @@ static void create_shelly_screen(void)
     create_screen_title(s_shelly_screen, "Shelly Configuration");
 
     lv_obj_t *hint = lv_label_create(s_shelly_screen);
-    lv_label_set_text(hint, "Enter the last octet for each plug (e.g. 192.168.1.10). Hostnames are also supported.");
+    lv_label_set_text(hint,
+                      "Gen4 plugs use RPC over HTTP. Enter the last octet for each plug and the device "
+                      "password if authentication is enabled.");
     lv_obj_set_style_text_color(hint, lv_color_hex(STATUS_COLOR), 0);
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_16, 0);
     lv_obj_set_width(hint, LV_PCT(100));
@@ -1975,6 +1991,16 @@ static void create_shelly_screen(void)
 
     create_field_label(form, "CO2 plug address");
     s_shelly_co2_ta = create_address_field(form, "12");
+
+    create_field_label(form, "Device password (admin)");
+    s_shelly_password_ta = lv_textarea_create(form);
+    lv_obj_set_width(s_shelly_password_ta, LV_PCT(100));
+    lv_obj_set_height(s_shelly_password_ta, 48);
+    lv_textarea_set_one_line(s_shelly_password_ta, true);
+    lv_textarea_set_password_mode(s_shelly_password_ta, true);
+    lv_textarea_set_max_length(s_shelly_password_ta, AQUAPILOT_SHELLY_PASSWORD_MAX);
+    lv_textarea_set_placeholder_text(s_shelly_password_ta, "Leave empty if auth is disabled");
+    attach_shelly_field(s_shelly_password_ta);
 
     s_shelly_status = lv_label_create(form);
     lv_label_set_text(s_shelly_status, "");

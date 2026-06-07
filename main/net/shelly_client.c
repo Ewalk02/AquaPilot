@@ -6,58 +6,138 @@
 
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "net/lan_http.h"
 #include "net/wifi_manager.h"
 #include "storage/aquapilot_settings.h"
 
 static const char *TAG = "shelly";
 
 #define HTTP_TIMEOUT_MS       5000
-#define HTTP_POWER_TIMEOUT_MS 5000
+#define HTTP_POWER_TIMEOUT_MS 8000
 #define RESPONSE_BUF_SIZE     768
-#define HTTP_LOCK_MS          6000
-#define SHELLY_MIN_GAP_US     (1200000LL)
+#define HTTP_LOCK_MS          12000
+#define API_CACHE_SLOTS       3
+#define DEFER_WAIT_MS         8000
 
-static SemaphoreHandle_t s_http_lock;
-static int64_t s_last_http_end_us;
+typedef enum {
+    SHELLY_API_UNKNOWN = 0,
+    SHELLY_API_RPC,
+} shelly_api_kind_t;
+
+typedef struct {
+    char host[AQUAPILOT_SHELLY_ADDR_MAX];
+    shelly_api_kind_t kind;
+} shelly_api_cache_t;
+
+static shelly_api_cache_t s_api_cache[API_CACHE_SLOTS];
 static bool s_exclusive_filter;
 
-static bool lock_http(void)
+static shelly_api_kind_t api_cache_lookup(const char *host)
 {
-    if (s_http_lock == NULL) {
-        s_http_lock = xSemaphoreCreateMutex();
-        if (s_http_lock == NULL) {
-            return false;
+    for (size_t i = 0; i < API_CACHE_SLOTS; i++) {
+        if (s_api_cache[i].host[0] != '\0' && strcmp(s_api_cache[i].host, host) == 0) {
+            return s_api_cache[i].kind;
+        }
+    }
+    return SHELLY_API_UNKNOWN;
+}
+
+static void api_cache_store(const char *host, shelly_api_kind_t kind)
+{
+    size_t slot = 0;
+    for (size_t i = 0; i < API_CACHE_SLOTS; i++) {
+        if (s_api_cache[i].host[0] != '\0' && strcmp(s_api_cache[i].host, host) == 0) {
+            slot = i;
+            break;
+        }
+        if (s_api_cache[i].host[0] == '\0') {
+            slot = i;
+            break;
         }
     }
 
-    return xSemaphoreTake(s_http_lock, pdMS_TO_TICKS(HTTP_LOCK_MS)) == pdTRUE;
+    snprintf(s_api_cache[slot].host, sizeof(s_api_cache[slot].host), "%s", host);
+    s_api_cache[slot].kind = kind;
 }
 
-static void unlock_http(void)
+static bool prepare_http_transaction(void)
 {
-    if (s_http_lock != NULL) {
-        xSemaphoreGive(s_http_lock);
+    if (!s_exclusive_filter) {
+        (void)lan_http_wait_until_ready(pdMS_TO_TICKS(DEFER_WAIT_MS));
     }
-    s_last_http_end_us = esp_timer_get_time();
+    lan_http_pace(s_exclusive_filter);
+    return lan_http_acquire(pdMS_TO_TICKS(HTTP_LOCK_MS));
 }
 
-static void pace_shelly_http(void)
+static void finish_http_transaction(void)
 {
-    if (s_exclusive_filter || s_last_http_end_us == 0) {
+    lan_http_release();
+}
+
+static char s_auth_user[] = "admin";
+static char s_auth_pass[AQUAPILOT_SHELLY_PASSWORD_MAX + 1];
+
+static void apply_shelly_auth(esp_http_client_config_t *config)
+{
+    s_auth_pass[0] = '\0';
+    if (!aquapilot_settings_get_shelly_password(s_auth_pass, sizeof(s_auth_pass)) || s_auth_pass[0] == '\0') {
         return;
     }
 
-    const int64_t elapsed = esp_timer_get_time() - s_last_http_end_us;
-    if (elapsed >= SHELLY_MIN_GAP_US) {
-        return;
+    config->username = s_auth_user;
+    config->password = s_auth_pass;
+    config->auth_type = HTTP_AUTH_TYPE_DIGEST;
+    config->buffer_size_tx = 1024;
+}
+
+static void log_http_status_issue(const char *host, const char *op, int status)
+{
+    if (status == 401) {
+        ESP_LOGW(TAG, "%s host=%s: auth required (set Shelly password in Settings)", op, host);
+    }
+}
+
+typedef struct {
+    char *body;
+    size_t body_cap;
+    size_t body_len;
+} shelly_http_body_t;
+
+static esp_err_t shelly_http_event_handler(esp_http_client_event_t *evt)
+{
+    shelly_http_body_t *acc = (shelly_http_body_t *)evt->user_data;
+    if (acc == NULL || acc->body == NULL || acc->body_cap <= 1) {
+        return ESP_OK;
     }
 
-    const int64_t wait_ms = (SHELLY_MIN_GAP_US - elapsed) / 1000 + 1;
-    vTaskDelay(pdMS_TO_TICKS((TickType_t)wait_ms));
+    if (evt->event_id == HTTP_EVENT_ON_DATA && evt->data_len > 0) {
+        if (esp_http_client_is_chunked_response(evt->client)) {
+            return ESP_OK;
+        }
+        const size_t room = acc->body_cap - 1 - acc->body_len;
+        const size_t copy = evt->data_len < room ? (size_t)evt->data_len : room;
+        if (copy > 0) {
+            memcpy(acc->body + acc->body_len, evt->data, copy);
+            acc->body_len += copy;
+            acc->body[acc->body_len] = '\0';
+        }
+    }
+
+    return ESP_OK;
+}
+
+static void log_rpc_parse_failure(const char *host, const char *via, esp_err_t http_err, int status,
+                                  const char *body)
+{
+    if (body != NULL && body[0] != '\0') {
+        ESP_LOGW(TAG, "rpc parse failed host=%s via=%s http=%s status=%d body=\"%.96s\"", host, via,
+                 esp_err_to_name(http_err), status, body);
+    } else {
+        ESP_LOGW(TAG, "rpc parse failed host=%s via=%s http=%s status=%d body=(empty)", host, via,
+                 esp_err_to_name(http_err), status);
+    }
 }
 
 static bool host_for_plug(aquapilot_shelly_plug_t plug, char *host, size_t host_len)
@@ -71,125 +151,72 @@ static bool host_for_plug(aquapilot_shelly_plug_t plug, char *host, size_t host_
     return true;
 }
 
-static esp_err_t http_read_response(esp_http_client_handle_t client, char *body, size_t body_len, int *out_status)
+static esp_err_t http_request_timeout(esp_http_client_method_t method, const char *url, const char *post_payload,
+                                      char *body, size_t body_len, int *out_status, int timeout_ms)
 {
+    if (!prepare_http_transaction()) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    shelly_http_body_t acc = {
+        .body = body,
+        .body_cap = body_len,
+        .body_len = 0,
+    };
     if (body != NULL && body_len > 0) {
         body[0] = '\0';
     }
 
-    const int hdr = esp_http_client_fetch_headers(client);
-    if (hdr < 0) {
-        esp_http_client_close(client);
-        return ESP_FAIL;
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = method,
+        .timeout_ms = timeout_ms,
+        .event_handler = shelly_http_event_handler,
+        .user_data = &acc,
+    };
+    apply_shelly_auth(&config);
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) {
+        finish_http_transaction();
+        return ESP_ERR_NO_MEM;
     }
+
+    if (method == HTTP_METHOD_POST && post_payload != NULL) {
+        esp_http_client_set_header(client, "Content-Type", "application/json");
+        esp_http_client_set_post_field(client, post_payload, (int)strlen(post_payload));
+    }
+
+    const esp_err_t err = esp_http_client_perform(client);
     if (out_status != NULL) {
         *out_status = esp_http_client_get_status_code(client);
     }
-
-    if (body != NULL && body_len > 1) {
-        size_t total = 0;
-        while (total < body_len - 1) {
-            const int read = esp_http_client_read(client, body + total, (int)(body_len - 1 - total));
-            if (read < 0) {
-                esp_http_client_close(client);
-                return ESP_FAIL;
-            }
-            if (read == 0) {
-                break;
-            }
-            total += (size_t)read;
-        }
-        body[total] = '\0';
-    }
-
-    esp_http_client_close(client);
-    return ESP_OK;
+    esp_http_client_cleanup(client);
+    finish_http_transaction();
+    return err;
 }
 
 static esp_err_t http_get_body_timeout(const char *url, char *body, size_t body_len, int *out_status,
-                                       int timeout_ms);
-static esp_err_t http_post_json_body_timeout(const char *url, const char *payload, char *body, size_t body_len,
-                                             int *out_status, int timeout_ms);
+                                       int timeout_ms)
+{
+    return http_request_timeout(HTTP_METHOD_GET, url, NULL, body, body_len, out_status, timeout_ms);
+}
 
 static esp_err_t http_get_body(const char *url, char *body, size_t body_len, int *out_status)
 {
     return http_get_body_timeout(url, body, body_len, out_status, HTTP_TIMEOUT_MS);
 }
 
-static esp_err_t http_get_body_timeout(const char *url, char *body, size_t body_len, int *out_status,
-                                       int timeout_ms)
+static esp_err_t http_post_json_body_timeout(const char *url, const char *payload, char *body, size_t body_len,
+                                             int *out_status, int timeout_ms)
 {
-    pace_shelly_http();
-    if (!lock_http()) {
-        return ESP_ERR_TIMEOUT;
-    }
-
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_GET,
-        .timeout_ms = timeout_ms,
-    };
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        unlock_http();
-        return ESP_ERR_NO_MEM;
-    }
-
-    esp_err_t err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-        esp_http_client_cleanup(client);
-        unlock_http();
-        return err;
-    }
-
-    err = http_read_response(client, body, body_len, out_status);
-    esp_http_client_cleanup(client);
-    unlock_http();
-    return err;
+    return http_request_timeout(HTTP_METHOD_POST, url, payload, body, body_len, out_status, timeout_ms);
 }
 
 static esp_err_t http_post_json_body(const char *url, const char *payload, char *body, size_t body_len,
                                      int *out_status)
 {
     return http_post_json_body_timeout(url, payload, body, body_len, out_status, HTTP_TIMEOUT_MS);
-}
-
-static esp_err_t http_post_json_body_timeout(const char *url, const char *payload, char *body, size_t body_len,
-                                             int *out_status, int timeout_ms)
-{
-    pace_shelly_http();
-    if (!lock_http()) {
-        return ESP_ERR_TIMEOUT;
-    }
-
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = timeout_ms,
-    };
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        unlock_http();
-        return ESP_ERR_NO_MEM;
-    }
-
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    const int payload_len = (int)strlen(payload);
-    esp_http_client_set_post_field(client, payload, payload_len);
-
-    esp_err_t err = esp_http_client_open(client, payload_len);
-    if (err != ESP_OK) {
-        esp_http_client_cleanup(client);
-        unlock_http();
-        return err;
-    }
-
-    err = http_read_response(client, body, body_len, out_status);
-    esp_http_client_cleanup(client);
-    unlock_http();
-    return err;
 }
 
 static esp_err_t http_post_json(const char *url, const char *payload, int *out_status)
@@ -241,7 +268,7 @@ static esp_err_t parse_apower_from_json(const char *json, uint16_t *watts)
     return ESP_OK;
 }
 
-static esp_err_t try_gen2_switch_power(const char *host, uint16_t *watts)
+static esp_err_t try_rpc_switch_power_post(const char *host, uint16_t *watts)
 {
     char url[160];
     char response[RESPONSE_BUF_SIZE];
@@ -251,17 +278,21 @@ static esp_err_t try_gen2_switch_power(const char *host, uint16_t *watts)
     static const char payload[] = "{\"id\":1,\"method\":\"Switch.GetStatus\",\"params\":{\"id\":0}}";
     const esp_err_t err =
         http_post_json_body_timeout(url, payload, response, sizeof(response), &status, HTTP_POWER_TIMEOUT_MS);
+    if (status == 401) {
+        log_http_status_issue(host, "rpc power read", status);
+        return ESP_ERR_INVALID_STATE;
+    }
     if (parse_apower_from_json(response, watts) == ESP_OK) {
         if ((status >= 200 && status < 300) || response[0] == '{') {
             return ESP_OK;
         }
     }
 
-    (void)err;
+    log_rpc_parse_failure(host, "POST Switch.GetStatus", err, status, response);
     return ESP_FAIL;
 }
 
-static esp_err_t try_gen2_switch_power_get(const char *host, uint16_t *watts)
+static esp_err_t try_rpc_switch_power_get(const char *host, uint16_t *watts)
 {
     char url[192];
     char response[RESPONSE_BUF_SIZE];
@@ -270,65 +301,45 @@ static esp_err_t try_gen2_switch_power_get(const char *host, uint16_t *watts)
     snprintf(url, sizeof(url), "http://%s/rpc/Switch.GetStatus?id=0", host);
     const esp_err_t err =
         http_get_body_timeout(url, response, sizeof(response), &status, HTTP_POWER_TIMEOUT_MS);
+    if (status == 401) {
+        log_http_status_issue(host, "rpc power read", status);
+        return ESP_ERR_INVALID_STATE;
+    }
     if (parse_apower_from_json(response, watts) == ESP_OK) {
         if ((status >= 200 && status < 300) || response[0] == '{') {
             return ESP_OK;
         }
     }
 
+    log_rpc_parse_failure(host, "GET Switch.GetStatus", err, status, response);
     return err != ESP_OK ? err : ESP_FAIL;
 }
 
-static esp_err_t shelly_gen2_get_power_watts(const char *host, uint16_t *watts)
+static esp_err_t shelly_rpc_get_power_watts(const char *host, uint16_t *watts)
 {
-    if (try_gen2_switch_power(host, watts) == ESP_OK) {
+    /* Gen2/3/4: GET /rpc/Switch.GetStatus?id=0 (documented for Plug US Gen4). */
+    if (try_rpc_switch_power_get(host, watts) == ESP_OK) {
+        api_cache_store(host, SHELLY_API_RPC);
         return ESP_OK;
     }
 
-    if (try_gen2_switch_power_get(host, watts) == ESP_OK) {
+    if (try_rpc_switch_power_post(host, watts) == ESP_OK) {
+        api_cache_store(host, SHELLY_API_RPC);
         return ESP_OK;
     }
 
-    ESP_LOGW(TAG, "gen2 power read failed host=%s", host);
+    ESP_LOGW(TAG, "rpc power read failed host=%s", host);
     return ESP_FAIL;
 }
 
-static esp_err_t shelly_gen1_get_power_watts(const char *host, uint16_t *watts)
+static esp_err_t shelly_rpc_switch_set_get(const char *host, bool on, int *out_status)
 {
-    char url[160];
-    snprintf(url, sizeof(url), "http://%s/status", host);
-
-    char body[RESPONSE_BUF_SIZE];
-    int status = 0;
-    esp_err_t err = http_get_body(url, body, sizeof(body), &status);
-    if (err != ESP_OK || status < 200 || status >= 300) {
-        ESP_LOGW(TAG, "gen1 status failed host=%s err=%s status=%d", host, esp_err_to_name(err), status);
-        return err != ESP_OK ? err : ESP_FAIL;
-    }
-
-    const char *meters = strstr(body, "\"meters\"");
-    if (meters == NULL) {
-        meters = body;
-    }
-
-    float power = 0.0f;
-    if (!json_find_float(meters, "power", &power)) {
-        ESP_LOGW(TAG, "gen1 power missing host=%s body=%.120s", host, body);
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    *watts = watts_from_power(power);
-    return ESP_OK;
-}
-
-static esp_err_t shelly_gen1_relay_set(const char *host, bool on, int *out_status)
-{
-    char url[160];
-    snprintf(url, sizeof(url), "http://%s/relay/0?turn=%s", host, on ? "on" : "off");
+    char url[192];
+    snprintf(url, sizeof(url), "http://%s/rpc/Switch.Set?id=0&on=%s", host, on ? "true" : "false");
     return http_get_body(url, NULL, 0, out_status);
 }
 
-static esp_err_t shelly_gen2_switch_set(const char *host, bool on, int *out_status)
+static esp_err_t shelly_rpc_switch_set_post(const char *host, bool on, int *out_status)
 {
     char url[160];
     snprintf(url, sizeof(url), "http://%s/rpc", host);
@@ -351,16 +362,23 @@ esp_err_t shelly_client_plug_set(aquapilot_shelly_plug_t plug, bool on)
     }
 
     int status = 0;
-    esp_err_t err = shelly_gen2_switch_set(host, on, &status);
+    esp_err_t err = shelly_rpc_switch_set_get(host, on, &status);
     if (err == ESP_OK && status >= 200 && status < 300) {
-        ESP_LOGI(TAG, "plug %d %s (gen2) host=%s status=%d", (int)plug, on ? "on" : "off", host, status);
+        ESP_LOGI(TAG, "plug %d %s (rpc) host=%s status=%d", (int)plug, on ? "on" : "off", host, status);
         return ESP_OK;
     }
+    if (status == 401) {
+        log_http_status_issue(host, "plug set", status);
+    }
 
-    err = shelly_gen1_relay_set(host, on, &status);
+    err = shelly_rpc_switch_set_post(host, on, &status);
     if (err == ESP_OK && status >= 200 && status < 300) {
-        ESP_LOGI(TAG, "plug %d %s (gen1) host=%s status=%d", (int)plug, on ? "on" : "off", host, status);
+        ESP_LOGI(TAG, "plug %d %s (rpc) host=%s status=%d", (int)plug, on ? "on" : "off", host, status);
         return ESP_OK;
+    }
+    if (status == 401) {
+        log_http_status_issue(host, "plug set", status);
+        return ESP_ERR_INVALID_STATE;
     }
 
     ESP_LOGW(TAG, "plug %d %s failed host=%s err=%s status=%d", (int)plug, on ? "on" : "off", host,
@@ -383,21 +401,8 @@ esp_err_t shelly_client_get_plug_power_watts(aquapilot_shelly_plug_t plug, uint1
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t err = shelly_gen2_get_power_watts(host, watts);
-    if (err == ESP_OK) {
-        return ESP_OK;
-    }
-
-    if (s_exclusive_filter) {
-        return err;
-    }
-
-    err = shelly_gen1_get_power_watts(host, watts);
-    if (err == ESP_OK) {
-        return ESP_OK;
-    }
-
-    return err;
+    (void)api_cache_lookup(host);
+    return shelly_rpc_get_power_watts(host, watts);
 }
 
 esp_err_t shelly_client_heater_plug_off(void)
@@ -414,8 +419,8 @@ void shelly_client_set_exclusive_filter_mode(bool enabled)
     if (enabled) {
         const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(HTTP_LOCK_MS + 1000);
         while (xTaskGetTickCount() < deadline) {
-            if (lock_http()) {
-                unlock_http();
+            if (lan_http_acquire(pdMS_TO_TICKS(50))) {
+                lan_http_release();
                 break;
             }
             vTaskDelay(pdMS_TO_TICKS(50));

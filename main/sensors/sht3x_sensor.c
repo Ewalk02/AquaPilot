@@ -15,9 +15,11 @@ static const char *TAG = "sht3x";
 #define SHT3X_ADDR_VDD       0x45
 #define SHT3X_CMD_MEAS_HIGH  0x2400
 #define SHT3X_CMD_SOFT_RESET 0x30A2
-#define SHT3X_MEAS_DELAY_MS  20
-#define SHT3X_POLL_MS        3000
-#define SHT3X_I2C_TIMEOUT_MS 200
+#define SHT3X_MEAS_DELAY_MS        20
+#define SHT3X_POLL_MS              10000
+#define SHT3X_SAMPLES_PER_REPORT   5
+#define SHT3X_SAMPLE_GAP_MS        50
+#define SHT3X_I2C_TIMEOUT_MS       200
 #define SHT3X_BUS_WAIT_MS    500
 #define SHT3X_MAX_ATTEMPTS   5
 
@@ -168,6 +170,40 @@ static esp_err_t sht3x_soft_reset(void)
     return err;
 }
 
+static esp_err_t sht3x_read_averaged(float *temp_c_out)
+{
+    if (temp_c_out == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    float sum_c = 0.0f;
+    int success_count = 0;
+    esp_err_t last_err = ESP_FAIL;
+
+    for (int sample = 0; sample < SHT3X_SAMPLES_PER_REPORT; sample++) {
+        float temp_c = 0.0f;
+        float humidity = 0.0f;
+        const esp_err_t err = sht3x_read_once(&temp_c, &humidity);
+        last_err = err;
+
+        if (err == ESP_OK) {
+            sum_c += temp_c;
+            success_count++;
+        }
+
+        if (sample + 1 < SHT3X_SAMPLES_PER_REPORT) {
+            vTaskDelay(pdMS_TO_TICKS(SHT3X_SAMPLE_GAP_MS));
+        }
+    }
+
+    if (success_count != SHT3X_SAMPLES_PER_REPORT) {
+        return last_err != ESP_OK ? last_err : ESP_FAIL;
+    }
+
+    *temp_c_out = sum_c / (float)SHT3X_SAMPLES_PER_REPORT;
+    return ESP_OK;
+}
+
 static void sht3x_poll_task(void *arg)
 {
     (void)arg;
@@ -176,15 +212,15 @@ static void sht3x_poll_task(void *arg)
 
     while (true) {
         float temp_c = 0.0f;
-        float humidity = 0.0f;
-        const esp_err_t err = sht3x_read_once(&temp_c, &humidity);
+        const esp_err_t err = sht3x_read_averaged(&temp_c);
 
         if (err == ESP_OK) {
             s_temp_c = temp_c;
             s_has_reading = true;
             strncpy(s_status, "OK", sizeof(s_status));
             s_status[sizeof(s_status) - 1] = '\0';
-            ESP_LOGD(TAG, "ambient %.1f F, %.0f%% RH", (temp_c * 9.0f / 5.0f) + 32.0f, humidity);
+            ESP_LOGD(TAG, "ambient %.1f F (%d-sample avg)", (temp_c * 9.0f / 5.0f) + 32.0f,
+                     SHT3X_SAMPLES_PER_REPORT);
         } else {
             s_has_reading = false;
             if (err == ESP_ERR_INVALID_CRC) {
@@ -193,7 +229,7 @@ static void sht3x_poll_task(void *arg)
                 strncpy(s_status, "Read error", sizeof(s_status));
             }
             s_status[sizeof(s_status) - 1] = '\0';
-            ESP_LOGW(TAG, "read failed: %s", esp_err_to_name(err));
+            ESP_LOGW(TAG, "averaged read failed: %s", esp_err_to_name(err));
         }
 
         vTaskDelay(pdMS_TO_TICKS(SHT3X_POLL_MS));

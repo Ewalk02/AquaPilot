@@ -266,6 +266,15 @@ void ble_central_manager_tick(void)
         return;
     }
 
+    /* During light poll, give the Fluval driver every tick. */
+    if (s_light_exclusive) {
+        if (s_slots[BLE_CENTRAL_DRV_LIGHT].registered && s_slots[BLE_CENTRAL_DRV_LIGHT].reg.tick_fn != NULL &&
+            s_slots[BLE_CENTRAL_DRV_LIGHT].reg.enabled) {
+            s_slots[BLE_CENTRAL_DRV_LIGHT].reg.tick_fn(s_slots[BLE_CENTRAL_DRV_LIGHT].reg.tick_arg);
+        }
+        return;
+    }
+
     for (uint8_t i = 0; i < BLE_CENTRAL_DRV_COUNT; i++) {
         if (!s_slots[i].registered || s_slots[i].reg.tick_fn == NULL || !s_slots[i].reg.enabled) {
             continue;

@@ -4,6 +4,7 @@
 #include "tile_co2_status.h"
 #include "tile_common.h"
 #include "tile_ambient.h"
+#include "tile_clock.h"
 #include "tile_connections.h"
 #include "tile_filter_status.h"
 #include "tile_filter_watts.h"
@@ -26,6 +27,7 @@ static tile_temp_t s_temp_tile;
 static tile_heater_power_t s_heater_power_tile;
 static tile_connections_t s_connections_tile;
 static tile_ambient_t s_ambient_tile;
+static tile_clock_t s_clock_tile;
 static tile_light_status_t s_light_status_tile;
 static tile_feeder_status_t s_feeder_status_tile;
 static tile_temp_history_t s_temp_history_tile;
@@ -42,6 +44,7 @@ static void update_timer_cb(lv_timer_t *timer)
     tile_light_status_update(&s_light_status_tile);
     tile_connections_update(&s_connections_tile);
     tile_ambient_update(&s_ambient_tile);
+    tile_clock_update(&s_clock_tile);
     tile_feeder_status_update(&s_feeder_status_tile);
     tile_temp_history_update(&s_temp_history_tile);
 }
@@ -147,8 +150,12 @@ screen_main_t screen_main_create(void)
     lv_obj_set_width(s_connections_tile.root, 0);
 
     s_ambient_tile = tile_ambient_create(bottom_bar);
-    lv_obj_set_flex_grow(s_ambient_tile.root, 5);
+    lv_obj_set_flex_grow(s_ambient_tile.root, 3);
     lv_obj_set_width(s_ambient_tile.root, 0);
+
+    s_clock_tile = tile_clock_create(bottom_bar);
+    lv_obj_set_flex_grow(s_clock_tile.root, 2);
+    lv_obj_set_width(s_clock_tile.root, 0);
 
     tile_settings_t settings = tile_settings_create(bottom_bar);
     lv_obj_set_flex_grow(settings.root, 2);

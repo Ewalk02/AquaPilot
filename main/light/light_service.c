@@ -17,8 +17,8 @@
 static const char *TAG = "light_svc";
 
 #define LIGHT_POLL_INTERVAL_US   (120 * 1000 * 1000ULL)
-#define LIGHT_POLL_MIN_UPTIME_US (60 * 1000 * 1000ULL)
-#define BLE_TICK_MS              1000
+#define LIGHT_POLL_MIN_UPTIME_US (45 * 1000 * 1000ULL)
+#define BLE_TICK_MS              2000
 
 static uint8_t s_brightness_pct;
 static bool s_has_status;

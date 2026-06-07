@@ -7,21 +7,31 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "net/lan_http.h"
 #include "net/wifi_manager.h"
 #include "safety/filter_calibration.h"
 #include "storage/aquapilot_settings.h"
 
 static const char *TAG = "feeder_client";
 
-#define HTTP_TIMEOUT_MS     4000
+#define HTTP_TIMEOUT_MS     5000
 #define MONITOR_INTERVAL_MS 5000
-#define POLL_PHASE_MS       2800
+#define POLL_PHASE_MS       4200
+#define HTTP_LOCK_MS        12000
 
 static volatile bool s_online;
 
 static esp_err_t http_request(const char *url, esp_http_client_method_t method, const char *post_body,
                               int *out_status)
 {
+    if (!lan_http_wait_until_ready(pdMS_TO_TICKS(8000))) {
+        return ESP_ERR_TIMEOUT;
+    }
+    lan_http_pace(false);
+    if (!lan_http_acquire(pdMS_TO_TICKS(HTTP_LOCK_MS))) {
+        return ESP_ERR_TIMEOUT;
+    }
+
     esp_http_client_config_t config = {
         .url = url,
         .method = method,
@@ -30,6 +40,7 @@ static esp_err_t http_request(const char *url, esp_http_client_method_t method, 
 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
+        lan_http_release();
         return ESP_ERR_NO_MEM;
     }
 
@@ -43,6 +54,7 @@ static esp_err_t http_request(const char *url, esp_http_client_method_t method, 
         *out_status = esp_http_client_get_status_code(client);
     }
     esp_http_client_cleanup(client);
+    lan_http_release();
     return err;
 }
 
@@ -60,6 +72,10 @@ static bool host_configured(char *host, size_t host_len)
 static void refresh_online(void)
 {
     if (filter_calibration_is_active()) {
+        return;
+    }
+
+    if (lan_http_should_defer()) {
         return;
     }
 
