@@ -12,6 +12,7 @@
 #include "tile_light_status.h"
 #include "tile_settings.h"
 #include "tile_temp.h"
+#include "tile_temp_history.h"
 #include "ui_nav.h"
 
 #define SCREEN_BG_COLOR 0x0D1117
@@ -27,6 +28,7 @@ static tile_connections_t s_connections_tile;
 static tile_ambient_t s_ambient_tile;
 static tile_light_status_t s_light_status_tile;
 static tile_feeder_status_t s_feeder_status_tile;
+static tile_temp_history_t s_temp_history_tile;
 
 static void update_timer_cb(lv_timer_t *timer)
 {
@@ -41,6 +43,7 @@ static void update_timer_cb(lv_timer_t *timer)
     tile_connections_update(&s_connections_tile);
     tile_ambient_update(&s_ambient_tile);
     tile_feeder_status_update(&s_feeder_status_tile);
+    tile_temp_history_update(&s_temp_history_tile);
 }
 
 static void heater_power_timer_cb(lv_timer_t *timer)
@@ -123,7 +126,8 @@ screen_main_t screen_main_create(void)
     s_light_status_tile = tile_light_status_create(grid);
     grid_add_cell(grid, s_light_status_tile.root, 0, 2);
 
-    add_empty_cell(grid, 1, 2);
+    s_temp_history_tile = tile_temp_history_create(grid);
+    grid_add_cell(grid, s_temp_history_tile.root, 1, 2);
 
     s_feeder_status_tile = tile_feeder_status_create(grid);
     grid_add_cell(grid, s_feeder_status_tile.root, 2, 2);
@@ -143,11 +147,11 @@ screen_main_t screen_main_create(void)
     lv_obj_set_width(s_connections_tile.root, 0);
 
     s_ambient_tile = tile_ambient_create(bottom_bar);
-    lv_obj_set_flex_grow(s_ambient_tile.root, 3);
+    lv_obj_set_flex_grow(s_ambient_tile.root, 5);
     lv_obj_set_width(s_ambient_tile.root, 0);
 
     tile_settings_t settings = tile_settings_create(bottom_bar);
-    lv_obj_set_flex_grow(settings.root, 5);
+    lv_obj_set_flex_grow(settings.root, 2);
     lv_obj_set_width(settings.root, 0);
 
     ui_nav_set_dashboard_screen(s_screen);

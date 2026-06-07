@@ -14,6 +14,7 @@ idf_component_register(
         "ui/tile_filter_status.c"
         "ui/tile_filter_watts.c"
         "ui/tile_feeder_status.c"
+        "ui/tile_temp_history.c"
         "ui/tile_co2_schedule.c"
         "ui/tile_settings.c"
         "ui/tile_connections.c"
@@ -39,6 +40,8 @@ idf_component_register(
         "storage/aquapilot_nvs.c"
         "storage/aquapilot_settings.c"
         "storage/temp_range_config.c"
+        "storage/temp_history.c"
+        "storage/sd_storage.c"
         "ble/ble_central_manager.c"
         "heater/chihiros_ble.c"
         "heater/heater_console.c"
@@ -73,4 +76,5 @@ idf_component_register(
         chihiros_heater_protocol
         fluval_light_protocol
         driver
+        fatfs
 )

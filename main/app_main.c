@@ -20,6 +20,8 @@
 #include "safety/maintenance_mode.h"
 #include "display/display_control.h"
 #include "sensors/sht3x_sensor.h"
+#include "storage/sd_storage.h"
+#include "storage/temp_history.h"
 
 static const char *TAG = "aquapilot";
 
@@ -50,16 +52,20 @@ static lv_display_t *display_start(void)
     return disp;
 }
 
-static void platform_init(void)
+static bool platform_storage_init(void)
 {
     esp_err_t nvs_err = aquapilot_nvs_init();
     if (nvs_err != ESP_OK) {
         ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(nvs_err));
-        return;
+        return false;
     }
 
     aquapilot_settings_init();
+    return true;
+}
 
+static void platform_init(void)
+{
     esp_err_t maint_err = maintenance_mode_init();
     if (maint_err != ESP_OK) {
         ESP_LOGW(TAG, "maintenance mode init failed");
@@ -79,6 +85,20 @@ static void platform_init(void)
 void app_main(void)
 {
     ESP_LOGI(TAG, "AquaPilot starting");
+
+    if (!platform_storage_init()) {
+        return;
+    }
+
+    /* Complete SD mount before BLE/Wi-Fi SDIO traffic ramps up. */
+    if (!aquapilot_sd_ensure_mounted(120000)) {
+        ESP_LOGW(TAG, "SD card not available at boot");
+    }
+
+    esp_err_t hist_err = temp_history_init();
+    if (hist_err != ESP_OK) {
+        ESP_LOGW(TAG, "temperature history init failed");
+    }
 
     esp_err_t heater_err = heater_service_init();
     if (heater_err != ESP_OK) {

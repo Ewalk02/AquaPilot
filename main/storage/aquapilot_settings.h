@@ -78,3 +78,6 @@ bool aquapilot_settings_get_display_flip_180(bool *enabled);
 bool aquapilot_settings_set_display_flip_180(bool enabled);
 bool aquapilot_settings_get_display_brightness(uint8_t *brightness_pct);
 bool aquapilot_settings_set_display_brightness(uint8_t brightness_pct);
+
+bool aquapilot_settings_get_temp_graph_logging_enabled(bool *enabled);
+bool aquapilot_settings_set_temp_graph_logging_enabled(bool enabled);

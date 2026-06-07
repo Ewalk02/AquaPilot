@@ -26,6 +26,7 @@ static const char *LEGACY_TEMP_KEY = "temp_range_v1";
 #define SETTINGS_MAGIC_V13 0x4151503Du /* AQP13 */
 #define SETTINGS_MAGIC_V14 0x4151503Eu /* AQP14 */
 #define SETTINGS_MAGIC_V15 0x4151503Fu /* AQP15 */
+#define SETTINGS_MAGIC_V16 0x41515040u /* AQP16 */
 
 #define DEFAULT_DISPLAY_BRIGHTNESS_PCT 100
 #define DISPLAY_BRIGHTNESS_MIN         5
@@ -425,6 +426,47 @@ typedef struct __attribute__((packed)) {
     char feeder_host[SHELLY_ADDR_LEN];
     uint8_t display_flip_180;
     uint8_t display_brightness_pct;
+} settings_blob_v15_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t co2_on_h;
+    uint8_t co2_on_m;
+    uint8_t co2_off_h;
+    uint8_t co2_off_m;
+    uint8_t filter_calibrated;
+    uint8_t heater_setpoint_valid;
+    float heater_setpoint_f;
+    float temp_delta_plus_f;
+    float temp_delta_minus_f;
+    char shelly_heater[SHELLY_ADDR_LEN];
+    char shelly_filter[SHELLY_ADDR_LEN];
+    char shelly_co2[SHELLY_ADDR_LEN];
+    uint8_t heater_override_enabled;
+    uint8_t wifi_time_enabled;
+    uint8_t manual_time_valid;
+    uint8_t reserved;
+    int64_t manual_epoch;
+    char timezone[AQUAPILOT_TIMEZONE_MAX];
+    uint8_t co2_power_monitor_enabled;
+    uint8_t heater_shelly_power_monitor_enabled;
+    float filter_baseline_watts;
+    uint8_t filter_band_green_pct;
+    uint8_t filter_band_yellow_pct;
+    uint8_t filter_band_red_pct;
+    uint8_t filter_band_red_cutoff_pct;
+    uint8_t maintenance_mode_enabled;
+    uint8_t feeder_enabled;
+    uint8_t feeder_start_h;
+    uint8_t feeder_start_m;
+    uint8_t feeder_end_h;
+    uint8_t feeder_end_m;
+    uint8_t feeder_times_per_day;
+    uint16_t feeder_amount_seconds;
+    char feeder_host[SHELLY_ADDR_LEN];
+    uint8_t display_flip_180;
+    uint8_t display_brightness_pct;
+    uint8_t temp_graph_logging_enabled;
 } settings_blob_t;
 
 typedef struct __attribute__((packed)) {
@@ -439,7 +481,7 @@ static settings_blob_t s_settings;
 static void settings_defaults(settings_blob_t *s)
 {
     memset(s, 0, sizeof(*s));
-    s->magic = SETTINGS_MAGIC_V15;
+    s->magic = SETTINGS_MAGIC_V16;
     s->co2_on_h = DEFAULT_CO2_ON_H;
     s->co2_on_m = DEFAULT_CO2_ON_M;
     s->co2_off_h = DEFAULT_CO2_OFF_H;
@@ -471,6 +513,7 @@ static void settings_defaults(settings_blob_t *s)
     s->feeder_amount_seconds = DEFAULT_FEEDER_AMOUNT_SECONDS;
     s->display_flip_180 = 0;
     s->display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
+    s->temp_graph_logging_enabled = 1;
     s->wifi_time_enabled = 1;
     s->manual_time_valid = 0;
     s->reserved = 0;
@@ -861,10 +904,11 @@ static void upgrade_v13_blob(const settings_blob_v13_t *loaded)
     s_settings.feeder_host[0] = '\0';
     s_settings.display_flip_180 = 0;
     s_settings.display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
-    s_settings.magic = SETTINGS_MAGIC_V15;
+    s_settings.temp_graph_logging_enabled = 1;
+    s_settings.magic = SETTINGS_MAGIC_V16;
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v13 → v15");
+    ESP_LOGI(TAG, "upgraded settings v13 → v16");
 }
 
 static void upgrade_v14_blob(const settings_blob_v14_t *loaded)
@@ -873,10 +917,22 @@ static void upgrade_v14_blob(const settings_blob_v14_t *loaded)
     memcpy(&s_settings, loaded, sizeof(settings_blob_v14_t));
     s_settings.display_flip_180 = 0;
     s_settings.display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
-    s_settings.magic = SETTINGS_MAGIC_V15;
+    s_settings.temp_graph_logging_enabled = 1;
+    s_settings.magic = SETTINGS_MAGIC_V16;
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v14 → v15");
+    ESP_LOGI(TAG, "upgraded settings v14 → v16");
+}
+
+static void upgrade_v15_blob(const settings_blob_v15_t *loaded)
+{
+    memset(&s_settings, 0, sizeof(s_settings));
+    memcpy(&s_settings, loaded, sizeof(settings_blob_v15_t));
+    s_settings.temp_graph_logging_enabled = 1;
+    s_settings.magic = SETTINGS_MAGIC_V16;
+    ensure_shelly_strings_null_terminated();
+    save_settings();
+    ESP_LOGI(TAG, "upgraded settings v15 → v16");
 }
 
 static void upgrade_v9_blob(const settings_blob_v9_t *loaded)
@@ -959,7 +1015,7 @@ void aquapilot_settings_init(void)
     settings_blob_t loaded = {0};
     size_t size = sizeof(loaded);
     esp_err_t err = aquapilot_nvs_get_blob(NVS_KEY, &loaded, &size);
-    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V15) {
+    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V16) {
         s_settings = loaded;
         ensure_shelly_strings_null_terminated();
         float min_f = 0.0f;
@@ -967,6 +1023,15 @@ void aquapilot_settings_init(void)
         compute_temp_range(&min_f, &max_f);
         ESP_LOGI(TAG, "loaded settings (setpoint %.1f F, range %.1f–%.1f F, tz %s)", effective_setpoint_f(), min_f,
                  max_f, s_settings.timezone);
+        return;
+    }
+
+    settings_blob_v15_t loaded_v15 = {0};
+    size = sizeof(loaded_v15);
+    err = aquapilot_nvs_get_blob(NVS_KEY, &loaded_v15, &size);
+    if (err == ESP_OK && size == sizeof(loaded_v15) && loaded_v15.magic == SETTINGS_MAGIC_V15) {
+        settings_defaults(&s_settings);
+        upgrade_v15_blob(&loaded_v15);
         return;
     }
 
@@ -1589,5 +1654,21 @@ bool aquapilot_settings_set_display_brightness(uint8_t brightness_pct)
 
     s_settings.display_brightness_pct = brightness_pct;
     ESP_LOGI(TAG, "display brightness %u%%", (unsigned)brightness_pct);
+    return save_settings();
+}
+
+bool aquapilot_settings_get_temp_graph_logging_enabled(bool *enabled)
+{
+    if (enabled == NULL) {
+        return false;
+    }
+    *enabled = s_settings.temp_graph_logging_enabled != 0;
+    return true;
+}
+
+bool aquapilot_settings_set_temp_graph_logging_enabled(bool enabled)
+{
+    s_settings.temp_graph_logging_enabled = enabled ? 1 : 0;
+    ESP_LOGI(TAG, "temperature graph logging %s", enabled ? "enabled" : "disabled");
     return save_settings();
 }

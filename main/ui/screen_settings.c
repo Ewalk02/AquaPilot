@@ -13,6 +13,7 @@
 #include "heater/heater_service.h"
 #include "schedule/aquapilot_time.h"
 #include "display/display_control.h"
+#include "storage/temp_history.h"
 #include "feeder/feeder_client.h"
 #include "schedule/feeder_service.h"
 #include "timezone_options.h"
@@ -45,6 +46,7 @@ static lv_obj_t *s_safety_screen;
 static lv_obj_t *s_maintenance_screen;
 static lv_obj_t *s_feeder_screen;
 static lv_obj_t *s_display_screen;
+static lv_obj_t *s_graphing_screen;
 static lv_obj_t *s_time_screen;
 
 static lv_obj_t *s_temp_setpoint_ta;
@@ -93,6 +95,8 @@ static lv_obj_t *s_feeder_host_keyboard;
 static lv_obj_t *s_display_flip_sw;
 static lv_obj_t *s_display_brightness_slider;
 static lv_obj_t *s_display_brightness_label;
+static lv_obj_t *s_graphing_logging_sw;
+static lv_obj_t *s_graphing_status;
 static lv_obj_t *s_wifi_time_sw;
 static lv_obj_t *s_tz_dd;
 static lv_obj_t *s_manual_date_ta;
@@ -107,6 +111,7 @@ static lv_obj_t *s_time_keyboard;
 static void shelly_ta_focus_cb(lv_event_t *e);
 static bool time_settings_save_from_fields(void);
 static void time_settings_refresh_fields(void);
+static lv_obj_t *create_feeder_action_button(lv_obj_t *parent, const char *label, lv_event_cb_t cb);
 
 static void hide_keyboard(lv_obj_t *keyboard)
 {
@@ -1356,6 +1361,101 @@ static void menu_display_cb(lv_event_t *e)
     }
 }
 
+static void graphing_refresh_fields(void)
+{
+    bool logging = false;
+    aquapilot_settings_get_temp_graph_logging_enabled(&logging);
+
+    if (s_graphing_logging_sw != NULL) {
+        if (logging) {
+            lv_obj_add_state(s_graphing_logging_sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_graphing_logging_sw, LV_STATE_CHECKED);
+        }
+    }
+
+    if (s_graphing_status != NULL) {
+        if (temp_history_storage_ready()) {
+            lv_label_set_text(s_graphing_status, logging ? "Logging enabled (SD card)" : "Logging paused (SD card)");
+        } else {
+            lv_label_set_text(s_graphing_status,
+                              logging ? "Logging enabled (RAM only)" : "Logging paused (RAM only)");
+        }
+    }
+}
+
+static void graphing_logging_switch_cb(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    const bool enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    aquapilot_settings_set_temp_graph_logging_enabled(enabled);
+    graphing_refresh_fields();
+}
+
+static void graphing_clear_cb(lv_event_t *e)
+{
+    (void)e;
+    temp_history_clear();
+    if (s_graphing_status != NULL) {
+        lv_label_set_text(s_graphing_status, "History cleared.");
+    }
+}
+
+static void menu_graphing_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_graphing_screen != NULL) {
+        hide_all_keyboards();
+        graphing_refresh_fields();
+        lv_screen_load(s_graphing_screen);
+    }
+}
+
+static void create_graphing_screen(void)
+{
+    s_graphing_screen = lv_obj_create(NULL);
+    apply_screen_style(s_graphing_screen);
+    lv_obj_set_flex_flow(s_graphing_screen, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_graphing_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(s_graphing_screen, 8, 0);
+    lv_obj_remove_flag(s_graphing_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    create_screen_title(s_graphing_screen, "Graphing");
+
+    lv_obj_t *form = create_form_panel(s_graphing_screen);
+    lv_obj_set_style_pad_all(form, 12, 0);
+    lv_obj_set_style_pad_row(form, 8, 0);
+
+    lv_obj_t *logging_row = lv_obj_create(form);
+    lv_obj_remove_style_all(logging_row);
+    lv_obj_set_width(logging_row, LV_PCT(100));
+    lv_obj_set_height(logging_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(logging_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(logging_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(logging_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *logging_lbl = lv_label_create(logging_row);
+    lv_label_set_text(logging_lbl, "Enable temperature logging");
+    lv_obj_set_style_text_color(logging_lbl, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(logging_lbl, &lv_font_montserrat_16, 0);
+
+    s_graphing_logging_sw = lv_switch_create(logging_row);
+    lv_obj_set_size(s_graphing_logging_sw, 78, 46);
+    lv_obj_add_event_cb(s_graphing_logging_sw, graphing_logging_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_graphing_status = lv_label_create(form);
+    lv_label_set_text(s_graphing_status, "");
+    lv_obj_set_style_text_color(s_graphing_status, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(s_graphing_status, &lv_font_montserrat_16, 0);
+    lv_label_set_long_mode(s_graphing_status, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_graphing_status, LV_PCT(100));
+
+    create_feeder_action_button(form, "Clear Data", graphing_clear_cb);
+
+    graphing_refresh_fields();
+    create_back_button(s_graphing_screen, sub_back_cb);
+}
+
 static void create_display_screen(void)
 {
     s_display_screen = lv_obj_create(NULL);
@@ -1457,6 +1557,7 @@ static void create_hub_screen(void)
     create_menu_button_grid(menu, "Maintenance Mode", menu_maintenance_cb, 1, 3);
     create_menu_button_grid(menu, "Automatic Feeder", menu_feeder_cb, 0, 4);
     create_menu_button_grid(menu, "Display", menu_display_cb, 1, 4);
+    create_menu_button_grid(menu, "Graphing", menu_graphing_cb, 0, 5);
 
     create_back_button(s_hub_screen, hub_back_cb);
 }
@@ -2319,6 +2420,7 @@ void screen_settings_create(void)
     create_co2_screen();
     create_feeder_screen();
     create_display_screen();
+    create_graphing_screen();
     create_filter_screen();
     ui_nav_set_settings_screen(s_hub_screen);
 }
