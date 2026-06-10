@@ -150,7 +150,7 @@ screen_main_t screen_main_create(void)
     lv_obj_set_width(s_connections_tile.root, 0);
 
     s_ambient_tile = tile_ambient_create(bottom_bar);
-    lv_obj_set_flex_grow(s_ambient_tile.root, 3);
+    lv_obj_set_flex_grow(s_ambient_tile.root, 2);
     lv_obj_set_width(s_ambient_tile.root, 0);
 
     s_clock_tile = tile_clock_create(bottom_bar);
@@ -158,7 +158,7 @@ screen_main_t screen_main_create(void)
     lv_obj_set_width(s_clock_tile.root, 0);
 
     tile_settings_t settings = tile_settings_create(bottom_bar);
-    lv_obj_set_flex_grow(settings.root, 2);
+    lv_obj_set_flex_grow(settings.root, 3);
     lv_obj_set_width(settings.root, 0);
 
     ui_nav_set_dashboard_screen(s_screen);

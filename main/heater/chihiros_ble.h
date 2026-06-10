@@ -38,6 +38,21 @@ bool chihiros_ble_get_status(chihiros_status_t *out);
 
 void chihiros_ble_request_reconnect(void);
 void chihiros_ble_request_status_refresh(void);
+
+typedef enum {
+    CHIHIROS_BLE_SESSION_NONE = 0,
+    CHIHIROS_BLE_SESSION_READ,
+    CHIHIROS_BLE_SESSION_SETPOINT,
+} chihiros_ble_session_mode_t;
+
+/** Connect, sample, and disconnect (5 NOTIFY averages for READ). */
+void chihiros_ble_request_session(chihiros_ble_session_mode_t mode);
+void chihiros_ble_end_session(void);
+bool chihiros_ble_is_session_active(void);
+chihiros_ble_session_mode_t chihiros_ble_get_session_mode(void);
+
+typedef void (*chihiros_ble_session_done_cb_t)(void);
+void chihiros_ble_set_session_done_cb(chihiros_ble_session_done_cb_t cb);
 void chihiros_ble_set_name_prefix(const char *prefix);
 bool chihiros_ble_is_subscribed(void);
 bool chihiros_ble_has_valid_status(void);

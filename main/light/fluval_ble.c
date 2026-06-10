@@ -15,6 +15,9 @@
 
 static const char *TAG = "fluval_ble";
 
+#undef FLUVAL_STATUS_STALE_MS
+#define FLUVAL_STATUS_STALE_MS (6 * 60 * 1000)
+
 static ble_uuid_any_t FFF0_SVC_UUID;
 static ble_uuid_any_t FFF1_NOTIFY_UUID;
 static ble_uuid_any_t FFF2_WRITE_UUID;
@@ -45,11 +48,29 @@ static bool s_poll_window_requested;
 static bool s_release_after_poll;
 static bool s_scan_active;
 
-#define STATUS_QUERY_INTERVAL_US (10 * 1000 * 1000ULL)
-#define POLL_WINDOW_US           (22 * 1000 * 1000ULL)
-#define POLL_GATT_EXTENSION_US   (20 * 1000 * 1000ULL)
+typedef enum {
+    PENDING_NONE = 0,
+    PENDING_SET_MANUAL,
+    PENDING_SET_AUTO,
+    PENDING_SET_ALL,
+    PENDING_SET_CHANNELS,
+} pending_op_t;
+
+static pending_op_t s_pending_op;
+static uint8_t s_pending_percent;
+static uint8_t s_pending_pink;
+static uint8_t s_pending_blue;
+static uint8_t s_pending_cold_white;
+static uint8_t s_pending_white;
+static uint8_t s_pending_warm_white;
+
+#define POLL_WINDOW_US         (22 * 1000 * 1000ULL)
+#define POLL_GATT_EXTENSION_US (20 * 1000 * 1000ULL)
 
 static bool poll_window_active(void);
+static void end_poll_window(void);
+static esp_err_t execute_pending_op(void);
+static void queue_write_session(pending_op_t op);
 
 static void init_uuids(void)
 {
@@ -194,7 +215,14 @@ static int subscribe_complete_cb(uint16_t conn_handle, const struct ble_gatt_err
     state_unlock();
     s_cccd_write_active = false;
     ESP_LOGI(TAG, "FFF1 notifications enabled");
-    send_status_query();
+    if (s_pending_op != PENDING_NONE) {
+        if (execute_pending_op() == ESP_OK) {
+            ESP_LOGI(TAG, "light command done, returning BLE to heater");
+            end_poll_window();
+        }
+    } else {
+        send_status_query();
+    }
     return 0;
 }
 
@@ -342,7 +370,6 @@ static int fluval_gap_event(struct ble_gap_event *event, void *arg)
         state_lock();
         s_status.connected = true;
         s_status.subscribed = false;
-        s_status.status_valid = false;
         s_status.stale = false;
         state_unlock();
         s_write_handle = 0;
@@ -400,6 +427,7 @@ static bool poll_window_active(void)
 
 static void end_poll_window(void)
 {
+    s_pending_op = PENDING_NONE;
     s_release_after_poll = false;
     s_poll_window_until_us = 0;
     s_poll_window_requested = false;
@@ -493,18 +521,17 @@ static void fluval_ble_tick_fn(void *arg)
     const uint64_t now_us = esp_timer_get_time();
     maybe_begin_poll_window(now_us);
 
-    if (!poll_window_active() && !s_connect_requested) {
-        return;
-    }
+    bool request_poll_on_stale = false;
 
     state_lock();
-    if (s_status.connected && s_status.status_valid) {
+    if (s_status.status_valid) {
         const uint32_t age = now_ms() - (uint32_t)s_status.last_status_ms;
         const bool stale = age > FLUVAL_STATUS_STALE_MS;
         if (stale != s_status.stale) {
             s_status.stale = stale;
             if (stale) {
                 ESP_LOGW(TAG, "light status stale (%lu ms old)", (unsigned long)age);
+                request_poll_on_stale = true;
             }
         }
     }
@@ -512,6 +539,14 @@ static void fluval_ble_tick_fn(void *arg)
     const bool subscribed = s_status.subscribed;
     const bool status_valid = s_status.status_valid;
     state_unlock();
+
+    if (request_poll_on_stale && !poll_window_active() && !s_connect_requested) {
+        fluval_ble_request_poll_window();
+    }
+
+    if (!poll_window_active() && !s_connect_requested) {
+        return;
+    }
 
     if (connected && subscribed && status_valid && s_release_after_poll) {
         ESP_LOGI(TAG, "light status received, returning BLE to heater");
@@ -526,9 +561,6 @@ static void fluval_ble_tick_fn(void *arg)
     }
 
     if (connected && subscribed) {
-        if (now_us - s_last_status_query_us >= STATUS_QUERY_INTERVAL_US) {
-            send_status_query();
-        }
         return;
     }
 
@@ -651,13 +683,77 @@ esp_err_t fluval_ble_stop(void)
     return ESP_OK;
 }
 
+static void queue_write_session(pending_op_t op)
+{
+    s_pending_op = op;
+    fluval_ble_request_poll_window();
+}
+
+static esp_err_t execute_pending_op(void)
+{
+    if (!s_status.connected || s_write_handle == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t err = ESP_FAIL;
+    uint8_t cmd[24];
+
+    switch (s_pending_op) {
+    case PENDING_SET_MANUAL: {
+        const size_t cmd_len = fluval_build_set_manual(cmd, sizeof(cmd));
+        if (cmd_len == 0) {
+            err = ESP_ERR_INVALID_ARG;
+            break;
+        }
+        log_hex("WRITE manual", cmd, cmd_len);
+        err = write_cmd(cmd, cmd_len) == 0 ? ESP_OK : ESP_FAIL;
+        break;
+    }
+    case PENDING_SET_AUTO: {
+        const size_t cmd_len = fluval_build_set_auto(cmd, sizeof(cmd));
+        if (cmd_len == 0) {
+            err = ESP_ERR_INVALID_ARG;
+            break;
+        }
+        log_hex("WRITE auto", cmd, cmd_len);
+        err = write_cmd(cmd, cmd_len) == 0 ? ESP_OK : ESP_FAIL;
+        break;
+    }
+    case PENDING_SET_ALL: {
+        const size_t cmd_len = fluval_build_set_all(s_pending_percent, cmd, sizeof(cmd));
+        if (cmd_len == 0) {
+            err = ESP_ERR_INVALID_ARG;
+            break;
+        }
+        log_hex("WRITE set all", cmd, cmd_len);
+        err = write_cmd(cmd, cmd_len) == 0 ? ESP_OK : ESP_FAIL;
+        break;
+    }
+    case PENDING_SET_CHANNELS: {
+        const size_t cmd_len = fluval_build_set_channels(s_pending_pink, s_pending_blue, s_pending_cold_white,
+                                                         s_pending_white, s_pending_warm_white, cmd, sizeof(cmd));
+        if (cmd_len == 0) {
+            err = ESP_ERR_INVALID_ARG;
+            break;
+        }
+        log_hex("WRITE channels", cmd, cmd_len);
+        err = write_cmd(cmd, cmd_len) == 0 ? ESP_OK : ESP_FAIL;
+        break;
+    }
+    default:
+        return ESP_OK;
+    }
+
+    if (err == ESP_OK) {
+        s_pending_op = PENDING_NONE;
+    }
+    return err;
+}
+
 void fluval_ble_request_reconnect(void)
 {
-    s_connect_requested = true;
-    s_connect_pending = false;
-    s_have_adv_target = false;
-    s_backoff_ms = 500;
-    s_next_action_us = esp_timer_get_time();
+    s_pending_op = PENDING_NONE;
+    fluval_ble_request_poll_window();
 }
 
 void fluval_ble_request_status(void)
@@ -694,64 +790,54 @@ bool fluval_ble_get_status(fluval_status_t *out)
 
 esp_err_t fluval_ble_set_manual(void)
 {
-    uint8_t cmd[8];
-    const size_t cmd_len = fluval_build_set_manual(cmd, sizeof(cmd));
-    if (cmd_len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
     if (!s_status.connected || s_write_handle == 0) {
-        return ESP_ERR_INVALID_STATE;
+        queue_write_session(PENDING_SET_MANUAL);
+        return ESP_OK;
     }
-    log_hex("WRITE manual", cmd, cmd_len);
-    return write_cmd(cmd, cmd_len) == 0 ? ESP_OK : ESP_FAIL;
+
+    s_pending_op = PENDING_SET_MANUAL;
+    return execute_pending_op();
 }
 
 esp_err_t fluval_ble_set_auto(void)
 {
-    uint8_t cmd[8];
-    const size_t cmd_len = fluval_build_set_auto(cmd, sizeof(cmd));
-    if (cmd_len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
     if (!s_status.connected || s_write_handle == 0) {
-        return ESP_ERR_INVALID_STATE;
+        queue_write_session(PENDING_SET_AUTO);
+        return ESP_OK;
     }
-    log_hex("WRITE auto", cmd, cmd_len);
-    return write_cmd(cmd, cmd_len) == 0 ? ESP_OK : ESP_FAIL;
+
+    s_pending_op = PENDING_SET_AUTO;
+    return execute_pending_op();
 }
 
 esp_err_t fluval_ble_set_channels(uint8_t pink, uint8_t blue, uint8_t cold_white, uint8_t white, uint8_t warm_white)
 {
-    uint8_t cmd[24];
-    const size_t cmd_len = fluval_build_set_channels(pink, blue, cold_white, white, warm_white, cmd, sizeof(cmd));
-    if (cmd_len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    s_pending_pink = pink;
+    s_pending_blue = blue;
+    s_pending_cold_white = cold_white;
+    s_pending_white = white;
+    s_pending_warm_white = warm_white;
+
     if (!s_status.connected || s_write_handle == 0) {
-        return ESP_ERR_INVALID_STATE;
+        queue_write_session(PENDING_SET_CHANNELS);
+        return ESP_OK;
     }
-    log_hex("WRITE channels", cmd, cmd_len);
-    if (write_cmd(cmd, cmd_len) != 0) {
-        return ESP_FAIL;
-    }
-    return ESP_OK;
+
+    s_pending_op = PENDING_SET_CHANNELS;
+    return execute_pending_op();
 }
 
 esp_err_t fluval_ble_set_all(uint8_t percent)
 {
-    uint8_t cmd[24];
-    const size_t cmd_len = fluval_build_set_all(percent, cmd, sizeof(cmd));
-    if (cmd_len == 0) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    s_pending_percent = percent;
+
     if (!s_status.connected || s_write_handle == 0) {
-        return ESP_ERR_INVALID_STATE;
+        queue_write_session(PENDING_SET_ALL);
+        return ESP_OK;
     }
-    log_hex("WRITE set all", cmd, cmd_len);
-    if (write_cmd(cmd, cmd_len) != 0) {
-        return ESP_FAIL;
-    }
-    return ESP_OK;
+
+    s_pending_op = PENDING_SET_ALL;
+    return execute_pending_op();
 }
 
 bool fluval_ble_is_subscribed(void)

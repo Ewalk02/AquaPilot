@@ -41,7 +41,7 @@ tile_light_status_t tile_light_status_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
 
     tile.value_label = lv_label_create(tile.root);
-    lv_label_set_text(tile.value_label, "OFF");
+    lv_label_set_text(tile.value_label, "--");
     lv_obj_set_style_text_color(tile.value_label, lv_color_hex(TILE_VALUE_COLOR), 0);
     lv_obj_set_style_text_font(tile.value_label, &lv_font_montserrat_36, 0);
 
@@ -60,16 +60,21 @@ void tile_light_status_update(tile_light_status_t *tile)
         return;
     }
 
+    const bool known = light_service_status_is_known();
     const bool on = light_service_is_on();
-    const bool have_status = light_service_has_status();
     const light_status_mode_t mode = light_service_get_mode();
 
-    tile_restore_value_label(tile->value_label, on ? TILE_VALUE_ON : TILE_VALUE_COLOR);
-    lv_label_set_text(tile->value_label, on ? "ON" : "OFF");
+    if (!known) {
+        tile_restore_value_label(tile->value_label, TILE_VALUE_COLOR);
+        lv_label_set_text(tile->value_label, "--");
+    } else {
+        tile_restore_value_label(tile->value_label, on ? TILE_VALUE_ON : TILE_VALUE_COLOR);
+        lv_label_set_text(tile->value_label, on ? "ON" : "OFF");
+    }
 
     if (tile->brightness_label != NULL) {
         char buf[16];
-        if (!have_status) {
+        if (!known) {
             snprintf(buf, sizeof(buf), "--");
         } else if (mode == LIGHT_STATUS_AUTO) {
             snprintf(buf, sizeof(buf), "Auto");
@@ -83,7 +88,7 @@ void tile_light_status_update(tile_light_status_t *tile)
     }
 
     if (tile->root != NULL) {
-        if (on) {
+        if (known && on) {
             apply_panel_colors(tile->root, TILE_ON_BG, TILE_ON_BORDER);
         } else {
             apply_panel_colors(tile->root, TILE_DEFAULT_BG, TILE_DEFAULT_BORDER);

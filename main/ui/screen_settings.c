@@ -12,6 +12,7 @@
 #include "heater/chihiros_ble.h"
 #include "heater/heater_service.h"
 #include "schedule/aquapilot_time.h"
+#include "schedule/co2_automation.h"
 #include "display/display_control.h"
 #include "storage/temp_history.h"
 #include "feeder/feeder_client.h"
@@ -376,7 +377,9 @@ static void co2_save_from_fields(void)
     uint8_t off_m = 0;
     parse_time_hhmm(lv_textarea_get_text(s_co2_on_ta), &on_h, &on_m);
     parse_time_hhmm(lv_textarea_get_text(s_co2_off_ta), &off_h, &off_m);
-    aquapilot_settings_set_co2_schedule(on_h, on_m, off_h, off_m);
+    if (aquapilot_settings_set_co2_schedule(on_h, on_m, off_h, off_m)) {
+        co2_automation_sync_now();
+    }
 }
 
 static void co2_refresh_fields(void)

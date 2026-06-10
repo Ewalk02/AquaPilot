@@ -242,6 +242,37 @@ static bool json_find_float(const char *json, const char *key, float *out)
     return true;
 }
 
+static bool json_find_bool(const char *json, const char *key, bool *out)
+{
+    if (json == NULL || key == NULL || out == NULL) {
+        return false;
+    }
+
+    char pattern[24];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    const char *p = strstr(json, pattern);
+    if (p == NULL) {
+        return false;
+    }
+
+    p += strlen(pattern);
+    while (*p == ' ' || *p == '\t') {
+        p++;
+    }
+
+    if (strncmp(p, "true", 4) == 0) {
+        *out = true;
+        return true;
+    }
+
+    if (strncmp(p, "false", 5) == 0) {
+        *out = false;
+        return true;
+    }
+
+    return false;
+}
+
 static uint16_t watts_from_power(float power)
 {
     if (power < 0.0f) {
@@ -250,85 +281,102 @@ static uint16_t watts_from_power(float power)
     return (uint16_t)(power + 0.5f);
 }
 
-static esp_err_t parse_apower_from_json(const char *json, uint16_t *watts)
+static void parse_switch_status_from_json(const char *json, shelly_plug_status_t *status)
 {
-    if (json == NULL || watts == NULL || json[0] == '\0') {
-        return ESP_ERR_INVALID_ARG;
+    if (json == NULL || status == NULL || json[0] == '\0') {
+        return;
     }
 
     const char *result = strstr(json, "\"result\"");
     const char *search = result != NULL ? result : json;
 
     float apower = 0.0f;
-    if (!json_find_float(search, "apower", &apower)) {
-        return ESP_ERR_NOT_FOUND;
+    if (json_find_float(search, "apower", &apower)) {
+        status->watts_valid = true;
+        status->watts = watts_from_power(apower);
     }
 
-    *watts = watts_from_power(apower);
-    return ESP_OK;
+    bool output_on = false;
+    if (json_find_bool(search, "output", &output_on)) {
+        status->output_valid = true;
+        status->output_on = output_on;
+    }
 }
 
-static esp_err_t try_rpc_switch_power_post(const char *host, uint16_t *watts)
+static bool switch_status_response_ok(int status, const char *response, const shelly_plug_status_t *parsed)
+{
+    if (parsed == NULL || (!parsed->watts_valid && !parsed->output_valid)) {
+        return false;
+    }
+
+    return (status >= 200 && status < 300) || (response != NULL && response[0] == '{');
+}
+
+static esp_err_t try_rpc_switch_status_post(const char *host, shelly_plug_status_t *status)
 {
     char url[160];
     char response[RESPONSE_BUF_SIZE];
-    int status = 0;
+    int http_status = 0;
 
     snprintf(url, sizeof(url), "http://%s/rpc", host);
     static const char payload[] = "{\"id\":1,\"method\":\"Switch.GetStatus\",\"params\":{\"id\":0}}";
-    const esp_err_t err =
-        http_post_json_body_timeout(url, payload, response, sizeof(response), &status, HTTP_POWER_TIMEOUT_MS);
-    if (status == 401) {
-        log_http_status_issue(host, "rpc power read", status);
+    const esp_err_t err = http_post_json_body_timeout(url, payload, response, sizeof(response), &http_status,
+                                                    HTTP_POWER_TIMEOUT_MS);
+    if (http_status == 401) {
+        log_http_status_issue(host, "rpc status read", http_status);
         return ESP_ERR_INVALID_STATE;
     }
-    if (parse_apower_from_json(response, watts) == ESP_OK) {
-        if ((status >= 200 && status < 300) || response[0] == '{') {
-            return ESP_OK;
-        }
+
+    shelly_plug_status_t parsed = {0};
+    parse_switch_status_from_json(response, &parsed);
+    if (switch_status_response_ok(http_status, response, &parsed)) {
+        *status = parsed;
+        return ESP_OK;
     }
 
-    log_rpc_parse_failure(host, "POST Switch.GetStatus", err, status, response);
+    log_rpc_parse_failure(host, "POST Switch.GetStatus", err, http_status, response);
     return ESP_FAIL;
 }
 
-static esp_err_t try_rpc_switch_power_get(const char *host, uint16_t *watts)
+static esp_err_t try_rpc_switch_status_get(const char *host, shelly_plug_status_t *status)
 {
     char url[192];
     char response[RESPONSE_BUF_SIZE];
-    int status = 0;
+    int http_status = 0;
 
     snprintf(url, sizeof(url), "http://%s/rpc/Switch.GetStatus?id=0", host);
     const esp_err_t err =
-        http_get_body_timeout(url, response, sizeof(response), &status, HTTP_POWER_TIMEOUT_MS);
-    if (status == 401) {
-        log_http_status_issue(host, "rpc power read", status);
+        http_get_body_timeout(url, response, sizeof(response), &http_status, HTTP_POWER_TIMEOUT_MS);
+    if (http_status == 401) {
+        log_http_status_issue(host, "rpc status read", http_status);
         return ESP_ERR_INVALID_STATE;
     }
-    if (parse_apower_from_json(response, watts) == ESP_OK) {
-        if ((status >= 200 && status < 300) || response[0] == '{') {
-            return ESP_OK;
-        }
+
+    shelly_plug_status_t parsed = {0};
+    parse_switch_status_from_json(response, &parsed);
+    if (switch_status_response_ok(http_status, response, &parsed)) {
+        *status = parsed;
+        return ESP_OK;
     }
 
-    log_rpc_parse_failure(host, "GET Switch.GetStatus", err, status, response);
+    log_rpc_parse_failure(host, "GET Switch.GetStatus", err, http_status, response);
     return err != ESP_OK ? err : ESP_FAIL;
 }
 
-static esp_err_t shelly_rpc_get_power_watts(const char *host, uint16_t *watts)
+static esp_err_t shelly_rpc_get_switch_status(const char *host, shelly_plug_status_t *status)
 {
     /* Gen2/3/4: GET /rpc/Switch.GetStatus?id=0 (documented for Plug US Gen4). */
-    if (try_rpc_switch_power_get(host, watts) == ESP_OK) {
+    if (try_rpc_switch_status_get(host, status) == ESP_OK) {
         api_cache_store(host, SHELLY_API_RPC);
         return ESP_OK;
     }
 
-    if (try_rpc_switch_power_post(host, watts) == ESP_OK) {
+    if (try_rpc_switch_status_post(host, status) == ESP_OK) {
         api_cache_store(host, SHELLY_API_RPC);
         return ESP_OK;
     }
 
-    ESP_LOGW(TAG, "rpc power read failed host=%s", host);
+    ESP_LOGW(TAG, "rpc status read failed host=%s", host);
     return ESP_FAIL;
 }
 
@@ -386,11 +434,13 @@ esp_err_t shelly_client_plug_set(aquapilot_shelly_plug_t plug, bool on)
     return err != ESP_OK ? err : ESP_FAIL;
 }
 
-esp_err_t shelly_client_get_plug_power_watts(aquapilot_shelly_plug_t plug, uint16_t *watts)
+esp_err_t shelly_client_get_plug_status(aquapilot_shelly_plug_t plug, shelly_plug_status_t *status)
 {
-    if (watts == NULL) {
+    if (status == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    *status = (shelly_plug_status_t){0};
 
     if (s_exclusive_filter && plug != AQUAPILOT_SHELLY_FILTER) {
         return ESP_ERR_INVALID_STATE;
@@ -402,7 +452,39 @@ esp_err_t shelly_client_get_plug_power_watts(aquapilot_shelly_plug_t plug, uint1
     }
 
     (void)api_cache_lookup(host);
-    return shelly_rpc_get_power_watts(host, watts);
+    return shelly_rpc_get_switch_status(host, status);
+}
+
+esp_err_t shelly_client_get_plug_power_watts(aquapilot_shelly_plug_t plug, uint16_t *watts)
+{
+    if (watts == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    shelly_plug_status_t status = {0};
+    const esp_err_t err = shelly_client_get_plug_status(plug, &status);
+    if (err != ESP_OK || !status.watts_valid) {
+        return err != ESP_OK ? err : ESP_ERR_NOT_FOUND;
+    }
+
+    *watts = status.watts;
+    return ESP_OK;
+}
+
+esp_err_t shelly_client_get_plug_switch_on(aquapilot_shelly_plug_t plug, bool *on)
+{
+    if (on == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    shelly_plug_status_t status = {0};
+    const esp_err_t err = shelly_client_get_plug_status(plug, &status);
+    if (err != ESP_OK || !status.output_valid) {
+        return err != ESP_OK ? err : ESP_ERR_NOT_FOUND;
+    }
+
+    *on = status.output_on;
+    return ESP_OK;
 }
 
 esp_err_t shelly_client_heater_plug_off(void)

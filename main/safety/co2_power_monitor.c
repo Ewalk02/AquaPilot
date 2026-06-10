@@ -8,6 +8,7 @@
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
 #include "safety/filter_calibration.h"
+#include "schedule/co2_automation.h"
 #include "schedule/co2_schedule.h"
 #include "storage/aquapilot_settings.h"
 
@@ -18,12 +19,22 @@ static const char *TAG = "co2_power";
 #define ALARM_DELAY_US      (60LL * 1000000LL)
 
 static volatile bool s_alarm_active;
+static volatile bool s_off_leak_alarm_active;
 static volatile bool s_watts_valid;
+static volatile bool s_switch_valid;
+static volatile bool s_switch_on;
 static volatile bool s_plug_online;
 static volatile uint16_t s_cached_watts;
 static int64_t s_alarm_condition_since_us;
+static int64_t s_off_leak_condition_since_us;
 
-static void refresh_watts(void)
+static bool monitor_feature_enabled(void)
+{
+    bool enabled = false;
+    return aquapilot_settings_get_co2_power_monitor_enabled(&enabled) && enabled;
+}
+
+static void refresh_status(void)
 {
     if (filter_calibration_is_active()) {
         return;
@@ -41,23 +52,29 @@ static void refresh_watts(void)
     if (!aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_CO2)) {
         s_plug_online = false;
         s_watts_valid = false;
+        s_switch_valid = false;
         return;
     }
 
-    uint16_t watts = 0;
-    if (shelly_client_get_plug_power_watts(AQUAPILOT_SHELLY_CO2, &watts) == ESP_OK) {
-        s_cached_watts = watts;
-        s_watts_valid = true;
+    shelly_plug_status_t status = {0};
+    if (shelly_client_get_plug_status(AQUAPILOT_SHELLY_CO2, &status) == ESP_OK) {
         s_plug_online = true;
+        s_watts_valid = status.watts_valid;
+        s_switch_valid = status.output_valid;
+        if (status.watts_valid) {
+            s_cached_watts = status.watts;
+        }
+        if (status.output_valid) {
+            s_switch_on = status.output_on;
+        }
     } else {
         s_plug_online = false;
     }
 }
 
-static bool alarm_condition_met(void)
+static bool on_no_power_condition_met(void)
 {
-    bool enabled = false;
-    if (!aquapilot_settings_get_co2_power_monitor_enabled(&enabled) || !enabled) {
+    if (!monitor_feature_enabled()) {
         return false;
     }
 
@@ -72,20 +89,48 @@ static bool alarm_condition_met(void)
     return s_cached_watts <= CO2_POWER_ALARM_WATTS_THRESHOLD;
 }
 
-static bool evaluate_alarm(void)
+static bool off_leak_condition_met(void)
 {
-    if (!alarm_condition_met()) {
-        s_alarm_condition_since_us = 0;
+    if (!monitor_feature_enabled()) {
+        return false;
+    }
+
+    if (co2_schedule_is_injection_active()) {
+        return false;
+    }
+
+    if (!s_watts_valid) {
+        return false;
+    }
+
+    return s_cached_watts >= CO2_OFF_LEAK_WATTS_THRESHOLD;
+}
+
+static bool evaluate_debounced_alarm(bool condition, int64_t *since_us)
+{
+    if (!condition) {
+        *since_us = 0;
         return false;
     }
 
     const int64_t now_us = esp_timer_get_time();
-    if (s_alarm_condition_since_us == 0) {
-        s_alarm_condition_since_us = now_us;
+    if (*since_us == 0) {
+        *since_us = now_us;
         return false;
     }
 
-    return (now_us - s_alarm_condition_since_us) >= ALARM_DELAY_US;
+    return (now_us - *since_us) >= ALARM_DELAY_US;
+}
+
+static void handle_off_leak_correction(void)
+{
+    const esp_err_t err = shelly_client_plug_set(AQUAPILOT_SHELLY_CO2, false);
+    if (err == ESP_OK) {
+        ESP_LOGW(TAG, "CO2 off-window leak: forced plug OFF");
+        co2_automation_sync_now();
+    } else {
+        ESP_LOGW(TAG, "CO2 off-window leak: force OFF failed (%s)", esp_err_to_name(err));
+    }
 }
 
 static void monitor_task(void *arg)
@@ -95,8 +140,18 @@ static void monitor_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(POLL_PHASE_MS));
 
     while (true) {
-        refresh_watts();
-        s_alarm_active = evaluate_alarm();
+        refresh_status();
+
+        const bool on_no_power = evaluate_debounced_alarm(on_no_power_condition_met(), &s_alarm_condition_since_us);
+        const bool off_leak_was_active = s_off_leak_alarm_active;
+        s_alarm_active = on_no_power;
+        s_off_leak_alarm_active =
+            evaluate_debounced_alarm(off_leak_condition_met(), &s_off_leak_condition_since_us);
+
+        if (s_off_leak_alarm_active && !off_leak_was_active) {
+            handle_off_leak_correction();
+        }
+
         vTaskDelay(pdMS_TO_TICKS(MONITOR_INTERVAL_MS));
     }
 }
@@ -117,6 +172,11 @@ bool co2_power_monitor_alarm_active(void)
     return s_alarm_active;
 }
 
+bool co2_power_monitor_off_leak_alarm_active(void)
+{
+    return s_off_leak_alarm_active;
+}
+
 bool co2_power_monitor_get_watts(uint16_t *watts)
 {
     if (watts == NULL || !s_watts_valid) {
@@ -124,6 +184,16 @@ bool co2_power_monitor_get_watts(uint16_t *watts)
     }
 
     *watts = s_cached_watts;
+    return true;
+}
+
+bool co2_power_monitor_plug_switch_on(bool *on)
+{
+    if (on == NULL || !s_switch_valid) {
+        return false;
+    }
+
+    *on = s_switch_on;
     return true;
 }
 

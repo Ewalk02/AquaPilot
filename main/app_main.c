@@ -18,6 +18,7 @@
 #include "feeder/feeder_client.h"
 #include "safety/filter_calibration.h"
 #include "safety/maintenance_mode.h"
+#include "safety/equipment_restore.h"
 #include "display/display_control.h"
 #include "sensors/sht3x_sensor.h"
 #include "storage/sd_storage.h"
@@ -145,6 +146,11 @@ void app_main(void)
     esp_err_t filter_cal_err = filter_calibration_init();
     if (filter_cal_err != ESP_OK) {
         ESP_LOGW(TAG, "filter calibration init failed");
+    }
+
+    esp_err_t restore_err = equipment_restore_init();
+    if (restore_err != ESP_OK) {
+        ESP_LOGW(TAG, "equipment restore init failed");
     }
 
     if (heater_err != ESP_OK) {

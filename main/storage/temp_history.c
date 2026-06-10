@@ -120,7 +120,7 @@ static void record_sample_locked(int32_t epoch)
     slot->epoch = epoch;
 
     float tank_f = 0.0f;
-    if (heater_service_get_temp_f(&tank_f)) {
+    if (heater_service_is_heater_online() && heater_service_get_temp_f(&tank_f)) {
         slot->tank_f_x10 = float_to_x10(tank_f);
     } else {
         slot->tank_f_x10 = INVALID_TEMP_X10;
@@ -159,7 +159,7 @@ static void maybe_record_sample(void)
         return;
     }
 
-    bool has_data = heater_service_has_reading() || sht3x_sensor_has_reading();
+    bool has_data = heater_service_is_heater_online() || sht3x_sensor_has_reading();
     if (!has_data) {
         return;
     }
@@ -188,6 +188,37 @@ static uint16_t chronological_index(uint16_t offset)
     }
 
     return (uint16_t)((s_store.write_idx + offset) % TEMP_HISTORY_SLOTS);
+}
+
+static int epoch_to_chart_index(int32_t epoch, time_t now)
+{
+    if (epoch <= 0) {
+        return -1;
+    }
+
+    const int64_t window_start = (int64_t)now - (int64_t)TEMP_HISTORY_WINDOW_SEC;
+    const int64_t offset = (int64_t)epoch - window_start;
+    if (offset < 0) {
+        return -1;
+    }
+
+    if (offset >= TEMP_HISTORY_WINDOW_SEC) {
+        return (int)TEMP_HISTORY_SLOTS - 1;
+    }
+
+    return (int)(offset / TEMP_HISTORY_INTERVAL_SEC);
+}
+
+static void place_chart_value(int32_t *series, int16_t temp_x10, int32_t *y_min, int32_t *y_max)
+{
+    const int32_t rounded = (int32_t)lroundf(x10_to_float(temp_x10));
+    *series = rounded;
+    if (rounded < *y_min) {
+        *y_min = rounded;
+    }
+    if (rounded > *y_max) {
+        *y_max = rounded;
+    }
 }
 
 esp_err_t temp_history_init(void)
@@ -254,49 +285,46 @@ bool temp_history_get_chart_values(int32_t *out_tank, int32_t *out_ambient, uint
     }
 
     const uint16_t count = s_store.filled;
-    const uint16_t missing = TEMP_HISTORY_SLOTS - count;
+    const bool time_ready = aquapilot_time_is_ready();
+    const time_t now = time_ready ? time(NULL) : 0;
     int32_t y_min = INT32_MAX;
     int32_t y_max = INT32_MIN;
+    uint16_t placed = 0;
 
-    for (uint16_t i = 0; i < missing; i++) {
+    for (uint16_t i = 0; i < TEMP_HISTORY_SLOTS; i++) {
         out_tank[i] = CHART_GAP_VALUE;
         out_ambient[i] = CHART_GAP_VALUE;
     }
 
     for (uint16_t i = 0; i < count; i++) {
         const temp_hist_sample_t *sample = &s_store.slots[chronological_index(i)];
-        const uint16_t out_idx = (uint16_t)(missing + i);
+        uint16_t out_idx;
+
+        if (time_ready) {
+            const int slot = epoch_to_chart_index(sample->epoch, now);
+            if (slot < 0) {
+                continue;
+            }
+            out_idx = (uint16_t)slot;
+        } else {
+            const uint16_t missing = TEMP_HISTORY_SLOTS - count;
+            out_idx = (uint16_t)(missing + i);
+        }
 
         if (sample->tank_f_x10 != INVALID_TEMP_X10) {
-            const int32_t tank = (int32_t)lroundf(x10_to_float(sample->tank_f_x10));
-            out_tank[out_idx] = tank;
-            if (tank < y_min) {
-                y_min = tank;
-            }
-            if (tank > y_max) {
-                y_max = tank;
-            }
-        } else {
-            out_tank[out_idx] = CHART_GAP_VALUE;
+            place_chart_value(&out_tank[out_idx], sample->tank_f_x10, &y_min, &y_max);
+            placed++;
         }
 
         if (sample->ambient_f_x10 != INVALID_TEMP_X10) {
-            const int32_t ambient = (int32_t)lroundf(x10_to_float(sample->ambient_f_x10));
-            out_ambient[out_idx] = ambient;
-            if (ambient < y_min) {
-                y_min = ambient;
-            }
-            if (ambient > y_max) {
-                y_max = ambient;
-            }
-        } else {
-            out_ambient[out_idx] = CHART_GAP_VALUE;
+            place_chart_value(&out_ambient[out_idx], sample->ambient_f_x10, &y_min, &y_max);
+            placed++;
         }
     }
 
     xSemaphoreGive(s_lock);
 
-    if (count == 0) {
+    if (count == 0 || placed == 0) {
         if (out_y_min != NULL) {
             *out_y_min = 70;
         }

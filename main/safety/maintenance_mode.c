@@ -5,10 +5,8 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "net/shelly_client.h"
 #include "net/wifi_manager.h"
-#include "schedule/co2_automation.h"
-#include "schedule/co2_schedule.h"
+#include "safety/equipment_restore.h"
 #include "storage/aquapilot_settings.h"
 
 static const char *TAG = "maint_mode";
@@ -43,12 +41,7 @@ static bool shelly_set_if_configured(aquapilot_shelly_plug_t plug, bool on)
         return false;
     }
 
-    const esp_err_t err = shelly_client_plug_set(plug, on);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "plug %d set %s failed: %s", (int)plug, on ? "ON" : "OFF", esp_err_to_name(err));
-        return false;
-    }
-    return true;
+    return equipment_set_plug_desired(plug, on);
 }
 
 static void run_enable_sequence(void)
@@ -66,31 +59,9 @@ static void run_enable_sequence(void)
     set_status("Maintenance mode active");
 }
 
-static bool co2_desired_for_restore(void)
-{
-    if (!co2_schedule_clock_ready()) {
-        return false;
-    }
-    return co2_schedule_is_injection_active();
-}
-
 static void run_disable_sequence(void)
 {
-    set_status("Turning on filter plug...");
-    (void)shelly_set_if_configured(AQUAPILOT_SHELLY_FILTER, true);
-    delay_step();
-
-    if (co2_desired_for_restore()) {
-        set_status("Turning on CO2 plug (schedule active)...");
-        (void)shelly_set_if_configured(AQUAPILOT_SHELLY_CO2, true);
-    } else {
-        set_status("CO2 plug off (outside schedule)...");
-        (void)shelly_set_if_configured(AQUAPILOT_SHELLY_CO2, false);
-    }
-    delay_step();
-
-    set_status("Turning on heater plug...");
-    (void)shelly_set_if_configured(AQUAPILOT_SHELLY_HEATER, true);
+    (void)equipment_apply_normal_state(set_status, true);
     set_status("Maintenance mode disabled");
 }
 
@@ -105,7 +76,6 @@ static void sequence_task(void *arg)
     } else {
         run_disable_sequence();
         s_active = false;
-        co2_automation_sync_now();
     }
     s_running = false;
     vTaskDelete(NULL);

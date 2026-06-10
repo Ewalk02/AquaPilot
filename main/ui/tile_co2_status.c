@@ -17,6 +17,7 @@
 #define TILE_ALARM_BG         0x3D0A0A
 #define TILE_ALARM_BORDER     0xFF4444
 #define TILE_ALARM_TEXT       0xFFCCCC
+#define TILE_WARN_WATTS_COLOR 0xFFAA44
 #define ALARM_FLASH_PERIOD_US 500000ULL
 
 static void apply_panel_colors(lv_obj_t *root, uint32_t bg, uint32_t border)
@@ -102,10 +103,15 @@ void tile_co2_status_update(tile_co2_status_t *tile)
     }
 
     const bool active = co2_schedule_is_injection_active();
-    const bool alarm = co2_power_monitor_alarm_active();
+    const bool on_no_power_alarm = co2_power_monitor_alarm_active();
+    const bool off_leak_alarm = co2_power_monitor_off_leak_alarm_active();
 
-    if (alarm) {
+    if (on_no_power_alarm) {
         tile_show_alarm_message(tile->value_label, "CO2 on but not\ndrawing power", TILE_ALARM_TEXT);
+        set_label_hidden(tile->watts_label, true);
+        set_label_hidden(tile->status_label, true);
+    } else if (off_leak_alarm) {
+        tile_show_alarm_message(tile->value_label, "CO2 should be off\nbut drawing power", TILE_ALARM_TEXT);
         set_label_hidden(tile->watts_label, true);
         set_label_hidden(tile->status_label, true);
     } else {
@@ -116,20 +122,24 @@ void tile_co2_status_update(tile_co2_status_t *tile)
         if (tile->watts_label != NULL) {
             char watts_buf[16];
             uint16_t watts = 0;
-            if (co2_power_monitor_get_watts(&watts)) {
+            const bool has_watts = co2_power_monitor_get_watts(&watts);
+            if (has_watts) {
                 snprintf(watts_buf, sizeof(watts_buf), "%u W", (unsigned)watts);
             } else {
                 snprintf(watts_buf, sizeof(watts_buf), "-- W");
             }
             lv_label_set_text(tile->watts_label, watts_buf);
-            lv_obj_set_style_text_color(tile->watts_label, lv_color_hex(TILE_STATUS_COLOR), 0);
+            const bool watts_warning =
+                !active && has_watts && watts >= CO2_OFF_LEAK_WATTS_THRESHOLD;
+            lv_obj_set_style_text_color(tile->watts_label,
+                                        lv_color_hex(watts_warning ? TILE_WARN_WATTS_COLOR : TILE_STATUS_COLOR), 0);
         }
 
         set_label_hidden(tile->status_label, true);
     }
 
     if (tile->root != NULL) {
-        if (alarm) {
+        if (on_no_power_alarm || off_leak_alarm) {
             const bool flash_on = (esp_timer_get_time() / ALARM_FLASH_PERIOD_US) % 2 == 0;
             apply_alarm_style(tile->root, flash_on);
         } else if (active) {
@@ -142,5 +152,5 @@ void tile_co2_status_update(tile_co2_status_t *tile)
 
 bool tile_co2_status_needs_fast_update(void)
 {
-    return co2_power_monitor_alarm_active();
+    return co2_power_monitor_alarm_active() || co2_power_monitor_off_leak_alarm_active();
 }

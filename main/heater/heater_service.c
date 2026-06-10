@@ -21,13 +21,14 @@
 static const char *TAG = "heater_svc";
 
 #define BLE_TICK_MS           2000
-#define TEMP_POLL_INTERVAL_MS (15 * 60 * 1000)
-#define WIFI_DEFER_TIMEOUT_MS 45000
+#define BLE_POLL_INTERVAL_MS  (5 * 60 * 1000)
+#define WIFI_DEFER_TIMEOUT_MS 15000
 
 static float s_temp_f;
 static uint16_t s_power_watts;
 static bool s_has_reading;
 static bool s_wifi_sta_requested;
+static bool s_setpoint_session_pending;
 static esp_timer_handle_t s_poll_timer;
 static esp_timer_handle_t s_wifi_defer_timer;
 static float s_applied_setpoint_f = -1.0f;
@@ -73,12 +74,23 @@ static void wifi_defer_timeout_cb(void *arg)
     request_wifi_sta_if_needed("heater setup timeout");
 }
 
+static void on_heater_session_done(void)
+{
+    light_service_request_poll();
+}
+
 static void try_apply_saved_setpoint(void)
 {
+    if (!s_setpoint_session_pending) {
+        return;
+    }
+
     float setpoint_f = 0.0f;
     if (!aquapilot_settings_has_heater_setpoint() ||
         !aquapilot_settings_get_heater_setpoint(&setpoint_f)) {
         s_applied_setpoint_f = -1.0f;
+        s_setpoint_session_pending = false;
+        chihiros_ble_end_session();
         return;
     }
 
@@ -88,20 +100,18 @@ static void try_apply_saved_setpoint(void)
     }
 
     if (s_applied_setpoint_f == setpoint_f) {
+        s_setpoint_session_pending = false;
+        chihiros_ble_end_session();
         return;
     }
 
-    esp_err_t err = chihiros_ble_set_target_f(setpoint_f);
+    const esp_err_t err = chihiros_ble_set_target_f(setpoint_f);
     if (err == ESP_OK) {
         s_applied_setpoint_f = setpoint_f;
+        s_setpoint_session_pending = false;
         ESP_LOGI(TAG, "heater setpoint %.1f F applied", setpoint_f);
+        chihiros_ble_end_session();
     }
-}
-
-void heater_service_request_setpoint_apply(void)
-{
-    s_applied_setpoint_f = -1.0f;
-    try_apply_saved_setpoint();
 }
 
 static void ble_tick_task(void *arg)
@@ -117,7 +127,8 @@ static void ble_tick_task(void *arg)
             request_wifi_sta_if_needed("heater status received");
         }
 
-        if (!fluval_ble_is_poll_window_active()) {
+        if (!fluval_ble_is_poll_window_active() && chihiros_ble_is_session_active() &&
+            chihiros_ble_get_session_mode() == CHIHIROS_BLE_SESSION_SETPOINT) {
             try_apply_saved_setpoint();
         }
 
@@ -125,23 +136,31 @@ static void ble_tick_task(void *arg)
     }
 }
 
-static void temp_poll_cb(void *arg)
+static void ble_poll_cb(void *arg)
 {
     (void)arg;
-    ESP_LOGI(TAG, "scheduled temperature poll (15 min)");
-    chihiros_ble_request_status_refresh();
+    ESP_LOGI(TAG, "scheduled BLE poll (5 min)");
+    chihiros_ble_request_session(CHIHIROS_BLE_SESSION_READ);
 }
 
 static void on_startup_poll(void *arg)
 {
     (void)arg;
-    ESP_LOGI(TAG, "startup temperature poll");
-    chihiros_ble_request_status_refresh();
+    ESP_LOGI(TAG, "startup BLE poll");
+    chihiros_ble_request_session(CHIHIROS_BLE_SESSION_READ);
+}
+
+void heater_service_request_setpoint_apply(void)
+{
+    s_applied_setpoint_f = -1.0f;
+    s_setpoint_session_pending = true;
+    chihiros_ble_request_session(CHIHIROS_BLE_SESSION_SETPOINT);
 }
 
 esp_err_t heater_service_init(void)
 {
     chihiros_ble_set_name_prefix(CONFIG_AQUAPILOT_HEATER_BLE_NAME_PREFIX);
+    chihiros_ble_set_session_done_cb(on_heater_session_done);
 
     esp_err_t err = chihiros_ble_start();
     if (err != ESP_OK) {
@@ -158,24 +177,23 @@ esp_err_t heater_service_init(void)
     s_ble_task_running = true;
 
     const esp_timer_create_args_t poll_args = {
-        .callback = temp_poll_cb,
-        .name = "heater_poll",
+        .callback = ble_poll_cb,
+        .name = "ble_poll",
     };
     err = esp_timer_create(&poll_args, &s_poll_timer);
     if (err != ESP_OK) {
         return err;
     }
-    esp_timer_start_periodic(s_poll_timer, (uint64_t)TEMP_POLL_INTERVAL_MS * 1000ULL);
+    esp_timer_start_periodic(s_poll_timer, (uint64_t)BLE_POLL_INTERVAL_MS * 1000ULL);
 
     const esp_timer_create_args_t startup_args = {
         .callback = on_startup_poll,
-        .name = "heater_startup",
+        .name = "ble_startup",
     };
     esp_timer_handle_t startup_timer;
     err = esp_timer_create(&startup_args, &startup_timer);
     if (err == ESP_OK) {
-        /* After GATT setup + init; avoid refresh during connect (was restarting scan). */
-        esp_timer_start_once(startup_timer, 20 * 1000 * 1000ULL);
+        esp_timer_start_once(startup_timer, 8 * 1000 * 1000ULL);
     }
 
     const esp_timer_create_args_t wifi_defer_args = {
@@ -188,7 +206,7 @@ esp_err_t heater_service_init(void)
     }
 
     ESP_LOGI(TAG, "heater service started (prefix=%s, poll=%d min)", CONFIG_AQUAPILOT_HEATER_BLE_NAME_PREFIX,
-             TEMP_POLL_INTERVAL_MS / 60000);
+             BLE_POLL_INTERVAL_MS / 60000);
     return ESP_OK;
 }
 
@@ -226,7 +244,7 @@ bool heater_service_is_heater_online(void)
     if (!chihiros_ble_get_status(&st)) {
         return false;
     }
-    return st.connected && st.subscribed && st.status_valid && !st.stale;
+    return st.status_valid && !st.stale;
 }
 
 bool heater_service_is_heater_off(void)
@@ -251,14 +269,11 @@ const char *heater_service_source_text(void)
     if (st.stale) {
         return "Heater stale";
     }
-    if (st.connected && st.subscribed) {
-        return "Heater connected";
-    }
-    if (st.connected) {
-        return "Heater pairing...";
+    if (chihiros_ble_is_session_active()) {
+        return "Reading heater...";
     }
     if (ble_central_manager_is_ready()) {
-        return "Scanning for heater...";
+        return "Heater idle";
     }
     return "BLE starting...";
 }

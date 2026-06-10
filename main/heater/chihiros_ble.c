@@ -1,5 +1,6 @@
 #include "chihiros_ble.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -15,6 +16,12 @@
 #include "host/ble_uuid.h"
 
 static const char *TAG = "chihiros_ble";
+
+#undef CHIHIROS_STATUS_STALE_MS
+#define CHIHIROS_STATUS_STALE_MS (6 * 60 * 1000)
+
+#define HEATER_SAMPLES_PER_SESSION 5
+#define HEATER_SESSION_TIMEOUT_US  (90 * 1000 * 1000ULL)
 
 static ble_uuid_any_t NUS_SVC_UUID;
 static ble_uuid_any_t NUS_RX_UUID;
@@ -41,6 +48,14 @@ static SemaphoreHandle_t s_mutex;
 static bool s_inited;
 static bool s_enabled;
 static bool s_connect_requested;
+static bool s_release_after_session;
+static chihiros_ble_session_mode_t s_session_mode;
+static uint64_t s_session_deadline_us;
+static uint8_t s_notify_samples;
+static float s_temp_sum_f;
+static float s_temp_sum_c;
+static uint32_t s_watts_sum;
+static chihiros_ble_session_done_cb_t s_session_done_cb;
 
 #define INIT_POST_SUBSCRIBE_DELAY_US (300 * 1000ULL)
 
@@ -68,6 +83,8 @@ static uint64_t s_init_phase_us;
 static uint32_t s_init_done_ms;
 
 static void maybe_finish_discovery(void);
+static void end_heater_session(void);
+static void finish_read_sample(const chihiros_pkt_status_t *decoded);
 
 static void log_svc_uuid(const struct ble_gatt_svc *svc)
 {
@@ -218,6 +235,11 @@ static void handle_notify(struct os_mbuf *om)
 
     chihiros_pkt_status_t decoded = {0};
     if (chihiros_decode_status_packet(buf, copy_len, &decoded)) {
+        if (s_release_after_session && s_session_mode == CHIHIROS_BLE_SESSION_READ) {
+            finish_read_sample(&decoded);
+            return;
+        }
+
         state_lock();
         s_status.status_valid = true;
         s_status.current_temp_c = decoded.current_temp_c;
@@ -231,6 +253,67 @@ static void handle_notify(struct os_mbuf *om)
         state_unlock();
         ESP_LOGI(TAG, "status: %.1f F (%.1f C), %u W%s", decoded.current_temp_f, decoded.current_temp_c,
                  (unsigned)decoded.watts, decoded.heating ? " heating" : "");
+    }
+}
+
+static void finish_read_sample(const chihiros_pkt_status_t *decoded)
+{
+    if (decoded == NULL) {
+        return;
+    }
+
+    s_notify_samples++;
+    s_temp_sum_f += decoded->current_temp_f;
+    s_temp_sum_c += decoded->current_temp_c;
+    s_watts_sum += decoded->watts;
+
+    ESP_LOGI(TAG, "session sample %u/%u: %.1f F, %u W", (unsigned)s_notify_samples,
+             (unsigned)HEATER_SAMPLES_PER_SESSION, decoded->current_temp_f, (unsigned)decoded->watts);
+
+    if (s_notify_samples < HEATER_SAMPLES_PER_SESSION) {
+        return;
+    }
+
+    state_lock();
+    s_status.status_valid = true;
+    s_status.current_temp_f = s_temp_sum_f / (float)HEATER_SAMPLES_PER_SESSION;
+    s_status.current_temp_c = s_temp_sum_c / (float)HEATER_SAMPLES_PER_SESSION;
+    s_status.power_watts = (uint16_t)lroundf((float)s_watts_sum / (float)HEATER_SAMPLES_PER_SESSION);
+    s_status.heating = decoded->heating;
+    s_status.status_a = decoded->status_a;
+    s_status.status_b = decoded->status_b;
+    s_status.last_status_ms = (int64_t)now_ms();
+    s_status.stale = false;
+    state_unlock();
+
+    ESP_LOGI(TAG, "session avg: %.1f F, %u W", s_status.current_temp_f, (unsigned)s_status.power_watts);
+    end_heater_session();
+}
+
+static void end_heater_session(void)
+{
+    const bool had_session = s_release_after_session;
+    const chihiros_ble_session_mode_t ended_mode = s_session_mode;
+    chihiros_ble_session_done_cb_t done_cb = s_session_done_cb;
+
+    s_release_after_session = false;
+    s_session_mode = CHIHIROS_BLE_SESSION_NONE;
+    s_session_deadline_us = 0;
+    s_notify_samples = 0;
+    s_temp_sum_f = 0.0f;
+    s_temp_sum_c = 0.0f;
+    s_watts_sum = 0;
+    s_connect_requested = false;
+    s_connect_pending = false;
+    s_have_adv_target = false;
+    ble_central_manager_cancel_discovery();
+    if (s_status.connected) {
+        ble_central_manager_disconnect_active();
+    }
+    ble_central_manager_release_session(BLE_CENTRAL_DRV_HEATER);
+
+    if (had_session && ended_mode == CHIHIROS_BLE_SESSION_READ && done_cb != NULL) {
+        done_cb();
     }
 }
 
@@ -417,7 +500,6 @@ static int chihiros_gap_event(struct ble_gap_event *event, void *arg)
         state_lock();
         s_status.connected = true;
         s_status.subscribed = false;
-        s_status.status_valid = false;
         s_status.stale = false;
         state_unlock();
         s_nus_rx_handle = 0;
@@ -436,8 +518,6 @@ static int chihiros_gap_event(struct ble_gap_event *event, void *arg)
         state_lock();
         s_status.connected = false;
         s_status.subscribed = false;
-        s_status.status_valid = false;
-        s_status.stale = false;
         state_unlock();
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_nus_rx_handle = 0;
@@ -451,7 +531,11 @@ static int chihiros_gap_event(struct ble_gap_event *event, void *arg)
             s_backoff_ms *= 2;
         }
         s_status.disconnect_count++;
-        s_next_action_us = esp_timer_get_time() + (uint64_t)s_backoff_ms * 1000ULL;
+        if (s_release_after_session) {
+            end_heater_session();
+        } else if (s_connect_requested) {
+            s_next_action_us = esp_timer_get_time() + (uint64_t)s_backoff_ms * 1000ULL;
+        }
         return 0;
 
     case BLE_GAP_EVENT_NOTIFY_RX:
@@ -531,13 +615,20 @@ static void chihiros_ble_tick_fn(void *arg)
     if (connected) {
         if (s_init_phase != INIT_IDLE && s_init_phase != INIT_DONE && s_init_phase != INIT_AWAIT_1_RSP) {
             run_init_sequence_step();
-        } else if (s_status.subscribed && s_init_phase == INIT_DONE && !s_status.status_valid && s_init_done_ms != 0) {
+        } else if (s_status.subscribed && s_init_phase == INIT_DONE && s_release_after_session &&
+                   s_session_mode == CHIHIROS_BLE_SESSION_READ && s_notify_samples == 0 && s_init_done_ms != 0) {
             if (now_ms() - s_init_done_ms > 10000) {
                 ESP_LOGW(TAG, "no status yet, retrying init sequence");
                 s_init_done_ms = 0;
                 s_init_phase = INIT_IDLE;
                 send_init_sequence();
             }
+        }
+
+        if (s_release_after_session && s_session_deadline_us != 0 && now_us >= s_session_deadline_us) {
+            ESP_LOGW(TAG, "heater session timed out");
+            end_heater_session();
+            return;
         }
     }
 
@@ -581,8 +672,6 @@ static void chihiros_ble_tick_fn(void *arg)
 static void chihiros_on_sync(void *arg)
 {
     (void)arg;
-    s_connect_requested = true;
-    s_next_action_us = esp_timer_get_time();
 }
 
 static esp_err_t chihiros_ble_init_once(void)
@@ -651,8 +740,8 @@ esp_err_t chihiros_ble_start(void)
 
     s_enabled = true;
     ble_central_manager_set_driver_enabled(BLE_CENTRAL_DRV_HEATER, true);
-    s_connect_requested = true;
-    ESP_LOGI(TAG, "started (prefix=%s)", s_name_prefix);
+    s_connect_requested = false;
+    ESP_LOGI(TAG, "started (prefix=%s, idle until session)", s_name_prefix);
     return ESP_OK;
 }
 
@@ -666,27 +755,62 @@ esp_err_t chihiros_ble_stop(void)
 
 void chihiros_ble_request_reconnect(void)
 {
-    s_connect_requested = true;
-    s_connect_pending = false;
-    s_have_adv_target = false;
-    s_backoff_ms = 500;
-    s_next_action_us = esp_timer_get_time();
+    chihiros_ble_request_session(CHIHIROS_BLE_SESSION_READ);
 }
 
-static void request_status_refresh(void)
+void chihiros_ble_set_session_done_cb(chihiros_ble_session_done_cb_t cb)
+{
+    s_session_done_cb = cb;
+}
+
+void chihiros_ble_request_session(chihiros_ble_session_mode_t mode)
 {
     if (ble_central_manager_is_light_exclusive()) {
         return;
     }
 
-    if (s_status.connected && s_status.subscribed) {
-        s_init_phase = INIT_IDLE;
-        s_init_done_ms = 0;
-        send_init_sequence();
-        return;
+    if (s_release_after_session) {
+        end_heater_session();
     }
-    ESP_LOGD(TAG, "status refresh ignored (connected=%d subscribed=%d)", s_status.connected,
-             s_status.subscribed);
+
+    s_session_mode = mode;
+    s_release_after_session = true;
+    s_connect_requested = true;
+    s_connect_pending = false;
+    s_have_adv_target = false;
+    s_notify_samples = 0;
+    s_temp_sum_f = 0.0f;
+    s_temp_sum_c = 0.0f;
+    s_watts_sum = 0;
+    s_backoff_ms = 500;
+    s_next_action_us = esp_timer_get_time();
+    s_session_deadline_us = s_next_action_us + HEATER_SESSION_TIMEOUT_US;
+
+    if (s_status.connected) {
+        ble_central_manager_disconnect_active();
+    }
+}
+
+void chihiros_ble_end_session(void)
+{
+    if (s_release_after_session) {
+        end_heater_session();
+    }
+}
+
+bool chihiros_ble_is_session_active(void)
+{
+    return s_release_after_session;
+}
+
+chihiros_ble_session_mode_t chihiros_ble_get_session_mode(void)
+{
+    return s_session_mode;
+}
+
+static void request_status_refresh(void)
+{
+    chihiros_ble_request_session(CHIHIROS_BLE_SESSION_READ);
 }
 
 bool chihiros_ble_get_status(chihiros_status_t *out)

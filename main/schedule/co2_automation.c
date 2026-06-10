@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "net/shelly_client.h"
+#include "safety/co2_power_monitor.h"
 #include "safety/filter_calibration.h"
 #include "schedule/co2_schedule.h"
 #include "safety/maintenance_mode.h"
@@ -31,7 +32,11 @@ static void sync_co2_plug(void)
     }
 
     const bool desired = co2_schedule_is_injection_active();
-    if (desired == s_last_desired) {
+    bool actual_on = false;
+    const bool know_actual = co2_power_monitor_plug_switch_on(&actual_on);
+
+    if (know_actual && desired == actual_on) {
+        s_last_desired = desired ? 1 : 0;
         return;
     }
 
@@ -39,6 +44,12 @@ static void sync_co2_plug(void)
     if (err == ESP_OK) {
         s_last_desired = desired ? 1 : 0;
         ESP_LOGI(TAG, "CO2 plug set %s", desired ? "ON" : "OFF");
+    } else if (!know_actual) {
+        ESP_LOGW(TAG, "CO2 plug set %s failed (relay state unknown): %s", desired ? "ON" : "OFF",
+                 esp_err_to_name(err));
+    } else {
+        ESP_LOGW(TAG, "CO2 plug set %s failed (relay was %s): %s", desired ? "ON" : "OFF",
+                 actual_on ? "ON" : "OFF", esp_err_to_name(err));
     }
 }
 
