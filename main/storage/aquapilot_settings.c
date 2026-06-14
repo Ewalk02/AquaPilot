@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "aquapilot_nvs.h"
+#include "feeder_amount.h"
 #include "chihiros_heater_protocol.h"
 #include "esp_log.h"
 
@@ -28,6 +29,7 @@ static const char *LEGACY_TEMP_KEY = "temp_range_v1";
 #define SETTINGS_MAGIC_V15 0x4151503Fu /* AQP15 */
 #define SETTINGS_MAGIC_V16 0x41515040u /* AQP16 */
 #define SETTINGS_MAGIC_V17 0x41515041u /* AQP17 */
+#define SETTINGS_MAGIC_V18 0x41515042u /* AQP18 */
 
 #define DEFAULT_DISPLAY_BRIGHTNESS_PCT 100
 #define DISPLAY_BRIGHTNESS_MIN         5
@@ -38,11 +40,11 @@ static const char *LEGACY_TEMP_KEY = "temp_range_v1";
 #define DEFAULT_FEEDER_END_H            20
 #define DEFAULT_FEEDER_END_M            0
 #define DEFAULT_FEEDER_TIMES_PER_DAY    2
-#define DEFAULT_FEEDER_AMOUNT_SECONDS   3
+#define DEFAULT_FEEDER_AMOUNT_TENTHS    30
+#define FEEDER_AMOUNT_TENTHS_MIN        1
+#define FEEDER_AMOUNT_TENTHS_MAX        1200
 #define FEEDER_TIMES_PER_DAY_MIN        1
 #define FEEDER_TIMES_PER_DAY_MAX        12
-#define FEEDER_AMOUNT_SECONDS_MIN       1
-#define FEEDER_AMOUNT_SECONDS_MAX       120
 
 #define DEFAULT_FILTER_BAND_GREEN_PCT   10
 #define DEFAULT_FILTER_BAND_YELLOW_PCT  25
@@ -504,7 +506,7 @@ typedef struct __attribute__((packed)) {
     uint8_t feeder_end_h;
     uint8_t feeder_end_m;
     uint8_t feeder_times_per_day;
-    uint16_t feeder_amount_seconds;
+    uint16_t feeder_amount_tenths;
     char feeder_host[SHELLY_ADDR_LEN];
     uint8_t display_flip_180;
     uint8_t display_brightness_pct;
@@ -524,7 +526,7 @@ static settings_blob_t s_settings;
 static void settings_defaults(settings_blob_t *s)
 {
     memset(s, 0, sizeof(*s));
-    s->magic = SETTINGS_MAGIC_V17;
+    s->magic = SETTINGS_MAGIC_V18;
     s->co2_on_h = DEFAULT_CO2_ON_H;
     s->co2_on_m = DEFAULT_CO2_ON_M;
     s->co2_off_h = DEFAULT_CO2_OFF_H;
@@ -554,7 +556,7 @@ static void settings_defaults(settings_blob_t *s)
     s->feeder_end_h = DEFAULT_FEEDER_END_H;
     s->feeder_end_m = DEFAULT_FEEDER_END_M;
     s->feeder_times_per_day = DEFAULT_FEEDER_TIMES_PER_DAY;
-    s->feeder_amount_seconds = DEFAULT_FEEDER_AMOUNT_SECONDS;
+    s->feeder_amount_tenths = DEFAULT_FEEDER_AMOUNT_TENTHS;
     s->display_flip_180 = 0;
     s->display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
     s->temp_graph_logging_enabled = 1;
@@ -919,6 +921,12 @@ static void upgrade_v11_blob(const settings_blob_v11_t *loaded)
     ESP_LOGI(TAG, "upgraded settings v11 → v12");
 }
 
+static void finalize_settings_v18(void)
+{
+    s_settings.feeder_amount_tenths = feeder_amount_migrate_legacy_seconds(s_settings.feeder_amount_tenths);
+    s_settings.magic = SETTINGS_MAGIC_V18;
+}
+
 static void apply_feeder_defaults(void)
 {
     s_settings.feeder_enabled = 0;
@@ -927,7 +935,7 @@ static void apply_feeder_defaults(void)
     s_settings.feeder_end_h = DEFAULT_FEEDER_END_H;
     s_settings.feeder_end_m = DEFAULT_FEEDER_END_M;
     s_settings.feeder_times_per_day = DEFAULT_FEEDER_TIMES_PER_DAY;
-    s_settings.feeder_amount_seconds = DEFAULT_FEEDER_AMOUNT_SECONDS;
+    s_settings.feeder_amount_tenths = DEFAULT_FEEDER_AMOUNT_TENTHS;
 }
 
 static void upgrade_v12_blob(const settings_blob_v12_t *loaded)
@@ -949,10 +957,10 @@ static void upgrade_v13_blob(const settings_blob_v13_t *loaded)
     s_settings.display_flip_180 = 0;
     s_settings.display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
     s_settings.temp_graph_logging_enabled = 1;
-    s_settings.magic = SETTINGS_MAGIC_V17;
+    finalize_settings_v18();
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v13 → v17");
+    ESP_LOGI(TAG, "upgraded settings v13 → v18");
 }
 
 static void upgrade_v14_blob(const settings_blob_v14_t *loaded)
@@ -963,10 +971,10 @@ static void upgrade_v14_blob(const settings_blob_v14_t *loaded)
     s_settings.display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
     s_settings.temp_graph_logging_enabled = 1;
     s_settings.shelly_password[0] = '\0';
-    s_settings.magic = SETTINGS_MAGIC_V17;
+    finalize_settings_v18();
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v14 → v17");
+    ESP_LOGI(TAG, "upgraded settings v14 → v18");
 }
 
 static void upgrade_v15_blob(const settings_blob_v15_t *loaded)
@@ -975,10 +983,10 @@ static void upgrade_v15_blob(const settings_blob_v15_t *loaded)
     memcpy(&s_settings, loaded, sizeof(settings_blob_v15_t));
     s_settings.temp_graph_logging_enabled = 1;
     s_settings.shelly_password[0] = '\0';
-    s_settings.magic = SETTINGS_MAGIC_V17;
+    finalize_settings_v18();
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v15 → v17");
+    ESP_LOGI(TAG, "upgraded settings v15 → v18");
 }
 
 static void upgrade_v16_blob(const settings_blob_v16_t *loaded)
@@ -986,10 +994,10 @@ static void upgrade_v16_blob(const settings_blob_v16_t *loaded)
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v16_t));
     s_settings.shelly_password[0] = '\0';
-    s_settings.magic = SETTINGS_MAGIC_V17;
+    finalize_settings_v18();
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v16 → v17");
+    ESP_LOGI(TAG, "upgraded settings v16 → v18");
 }
 
 static void upgrade_v9_blob(const settings_blob_v9_t *loaded)
@@ -1072,7 +1080,7 @@ void aquapilot_settings_init(void)
     settings_blob_t loaded = {0};
     size_t size = sizeof(loaded);
     esp_err_t err = aquapilot_nvs_get_blob(NVS_KEY, &loaded, &size);
-    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V17) {
+    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V18) {
         s_settings = loaded;
         ensure_shelly_strings_null_terminated();
         s_settings.shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX] = '\0';
@@ -1081,6 +1089,16 @@ void aquapilot_settings_init(void)
         compute_temp_range(&min_f, &max_f);
         ESP_LOGI(TAG, "loaded settings (setpoint %.1f F, range %.1f–%.1f F, tz %s)", effective_setpoint_f(), min_f,
                  max_f, s_settings.timezone);
+        return;
+    }
+
+    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V17) {
+        s_settings = loaded;
+        finalize_settings_v18();
+        ensure_shelly_strings_null_terminated();
+        s_settings.shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX] = '\0';
+        save_settings();
+        ESP_LOGI(TAG, "upgraded settings v17 → v18 (feeder amount tenths)");
         return;
     }
 
@@ -1642,10 +1660,10 @@ bool aquapilot_settings_set_feeder_enabled(bool enabled)
 }
 
 bool aquapilot_settings_get_feeder_schedule(uint8_t *start_h, uint8_t *start_m, uint8_t *end_h, uint8_t *end_m,
-                                              uint8_t *times_per_day, uint16_t *amount_seconds)
+                                              uint8_t *times_per_day, uint16_t *amount_tenths)
 {
     if (start_h == NULL || start_m == NULL || end_h == NULL || end_m == NULL || times_per_day == NULL ||
-        amount_seconds == NULL) {
+        amount_tenths == NULL) {
         return false;
     }
 
@@ -1654,12 +1672,12 @@ bool aquapilot_settings_get_feeder_schedule(uint8_t *start_h, uint8_t *start_m, 
     *end_h = s_settings.feeder_end_h;
     *end_m = s_settings.feeder_end_m;
     *times_per_day = s_settings.feeder_times_per_day;
-    *amount_seconds = s_settings.feeder_amount_seconds;
+    *amount_tenths = s_settings.feeder_amount_tenths;
     return true;
 }
 
 bool aquapilot_settings_set_feeder_schedule(uint8_t start_h, uint8_t start_m, uint8_t end_h, uint8_t end_m,
-                                            uint8_t times_per_day, uint16_t amount_seconds)
+                                            uint8_t times_per_day, uint16_t amount_tenths)
 {
     if (start_h > 23 || start_m > 59 || end_h > 23 || end_m > 59) {
         return false;
@@ -1667,7 +1685,7 @@ bool aquapilot_settings_set_feeder_schedule(uint8_t start_h, uint8_t start_m, ui
     if (times_per_day < FEEDER_TIMES_PER_DAY_MIN || times_per_day > FEEDER_TIMES_PER_DAY_MAX) {
         return false;
     }
-    if (amount_seconds < FEEDER_AMOUNT_SECONDS_MIN || amount_seconds > FEEDER_AMOUNT_SECONDS_MAX) {
+    if (amount_tenths < FEEDER_AMOUNT_TENTHS_MIN || amount_tenths > FEEDER_AMOUNT_TENTHS_MAX) {
         return false;
     }
     if (start_h == end_h && start_m == end_m) {
@@ -1679,9 +1697,9 @@ bool aquapilot_settings_set_feeder_schedule(uint8_t start_h, uint8_t start_m, ui
     s_settings.feeder_end_h = end_h;
     s_settings.feeder_end_m = end_m;
     s_settings.feeder_times_per_day = times_per_day;
-    s_settings.feeder_amount_seconds = amount_seconds;
-    ESP_LOGI(TAG, "feeder schedule %02u:%02u–%02u:%02u, %u×/day, %us", start_h, start_m, end_h, end_m,
-             (unsigned)times_per_day, (unsigned)amount_seconds);
+    s_settings.feeder_amount_tenths = amount_tenths;
+    ESP_LOGI(TAG, "feeder schedule %02u:%02u–%02u:%02u, %u×/day, %u tenths", start_h, start_m, end_h, end_m,
+             (unsigned)times_per_day, (unsigned)amount_tenths);
     return save_settings();
 }
 

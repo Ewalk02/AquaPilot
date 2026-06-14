@@ -8,6 +8,7 @@
 
 #define TILE_TITLE_COLOR    0x8B949E
 #define TILE_VALUE_COLOR    0xE6EDF3
+#define TILE_VALUE_ON       0x3FB950
 #define TILE_STATUS_COLOR   0x6E7681
 #define TILE_DEFAULT_BG       0x161B22
 #define TILE_DEFAULT_BORDER   0x30363D
@@ -91,15 +92,19 @@ void tile_temp_update(tile_temp_t *tile)
     }
     lv_label_set_text(tile->value_label, buf);
 
-    if (tile->status_label != NULL) {
-        lv_label_set_text(tile->status_label, temp_source_status_text());
-    }
-
     temp_tile_range_state_t state = TEMP_TILE_NEUTRAL;
     if (temp_source_has_reading()) {
         state = aquapilot_settings_temp_contains(temp_source_get_tank_temp_f()) ? TEMP_TILE_IN_RANGE
                                                                              : TEMP_TILE_OUT_RANGE;
     }
+
+    lv_obj_set_style_text_color(tile->value_label,
+                                lv_color_hex(state == TEMP_TILE_IN_RANGE ? TILE_VALUE_ON : TILE_VALUE_COLOR), 0);
+
+    if (tile->status_label != NULL) {
+        lv_label_set_text(tile->status_label, temp_source_status_text());
+    }
+
     if (tile->root != NULL) {
         apply_range_style(tile->root, state);
     }

@@ -16,6 +16,7 @@
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
 #include "feeder/feeder_client.h"
+#include "feeder/feeder_callback_server.h"
 #include "safety/filter_calibration.h"
 #include "safety/maintenance_mode.h"
 #include "safety/equipment_restore.h"
@@ -131,6 +132,11 @@ void app_main(void)
     esp_err_t feeder_client_err = feeder_client_init();
     if (feeder_client_err != ESP_OK) {
         ESP_LOGW(TAG, "feeder client init failed");
+    }
+
+    esp_err_t feeder_cb_err = feeder_callback_server_init();
+    if (feeder_cb_err != ESP_OK) {
+        ESP_LOGW(TAG, "feeder callback server init failed");
     }
 
     esp_err_t co2_power_err = co2_power_monitor_init();

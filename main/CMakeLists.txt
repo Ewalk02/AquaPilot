@@ -24,6 +24,8 @@ idf_component_register(
         "schedule/co2_schedule.c"
         "schedule/co2_automation.c"
         "schedule/feeder_service.c"
+        "schedule/feeder_slots.c"
+        "schedule/feeder_amount.c"
         "schedule/aquapilot_time.c"
         "sensors/temp_source.c"
         "sensors/sht3x_sensor.c"
@@ -34,6 +36,7 @@ idf_component_register(
         "safety/heater_override.c"
         "safety/co2_power_monitor.c"
         "feeder/feeder_client.c"
+        "feeder/feeder_callback_server.c"
         "display/display_control.c"
         "safety/filter_power_monitor.c"
         "safety/filter_calibration.c"
@@ -74,6 +77,8 @@ idf_component_register(
         esp_event
         esp_timer
         esp_http_client
+        esp_http_server
+        json
         console
         bt
         chihiros_heater_protocol

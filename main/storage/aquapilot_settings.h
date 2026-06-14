@@ -67,9 +67,9 @@ bool aquapilot_settings_set_maintenance_mode_enabled(bool enabled);
 bool aquapilot_settings_get_feeder_enabled(bool *enabled);
 bool aquapilot_settings_set_feeder_enabled(bool enabled);
 bool aquapilot_settings_get_feeder_schedule(uint8_t *start_h, uint8_t *start_m, uint8_t *end_h, uint8_t *end_m,
-                                              uint8_t *times_per_day, uint16_t *amount_seconds);
+                                              uint8_t *times_per_day, uint16_t *amount_tenths);
 bool aquapilot_settings_set_feeder_schedule(uint8_t start_h, uint8_t start_m, uint8_t end_h, uint8_t end_m,
-                                            uint8_t times_per_day, uint16_t amount_seconds);
+                                            uint8_t times_per_day, uint16_t amount_tenths);
 
 bool aquapilot_settings_get_wifi_time_enabled(bool *enabled);
 bool aquapilot_settings_set_wifi_time_enabled(bool enabled);

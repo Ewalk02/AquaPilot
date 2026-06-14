@@ -9,6 +9,7 @@
 
 #define TILE_TITLE_COLOR      0x8B949E
 #define TILE_VALUE_COLOR      0xE6EDF3
+#define TILE_VALUE_ON         0x3FB950
 #define TILE_STATUS_COLOR     0x6E7681
 #define TILE_DEFAULT_BG       0x161B22
 #define TILE_DEFAULT_BORDER   0x30363D
@@ -115,7 +116,7 @@ void tile_co2_status_update(tile_co2_status_t *tile)
         set_label_hidden(tile->watts_label, true);
         set_label_hidden(tile->status_label, true);
     } else {
-        tile_restore_value_label(tile->value_label, TILE_VALUE_COLOR);
+        tile_restore_value_label(tile->value_label, active ? TILE_VALUE_ON : TILE_VALUE_COLOR);
         lv_label_set_text(tile->value_label, active ? "ON" : "OFF");
         set_label_hidden(tile->watts_label, false);
 

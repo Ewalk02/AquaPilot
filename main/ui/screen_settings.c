@@ -16,6 +16,7 @@
 #include "display/display_control.h"
 #include "storage/temp_history.h"
 #include "feeder/feeder_client.h"
+#include "schedule/feeder_amount.h"
 #include "schedule/feeder_service.h"
 #include "timezone_options.h"
 
@@ -37,6 +38,14 @@
 #define FEEDER_BTN_GREEN       0x238636
 #define FEEDER_BTN_SHADOW      0x0D1117
 #define SETTINGS_INPUT_WIDTH_PCT 50
+#define FEEDER_HOST_COL_GROW     3
+#define FEEDER_MID_COL_GROW      2
+#define FEEDER_NUM_INPUT_WIDTH   72
+#define FEEDER_AMOUNT_INPUT_WIDTH 96
+#define FEEDER_TIME_INPUT_WIDTH  88
+#define FEEDER_ACTIONS_COL_WIDTH 108
+
+static bool feeder_host_is_unconfigured(const char *text);
 
 static lv_obj_t *s_hub_screen;
 static lv_obj_t *s_temp_range_screen;
@@ -83,17 +92,20 @@ static lv_obj_t *s_maintenance_sw;
 static lv_obj_t *s_maintenance_status;
 static lv_timer_t *s_maintenance_ui_timer;
 static lv_obj_t *s_feeder_enabled_sw;
+static lv_obj_t *s_feeder_start_label;
 static lv_obj_t *s_feeder_start_ta;
 static lv_obj_t *s_feeder_end_ta;
 static lv_obj_t *s_feeder_times_ta;
 static lv_obj_t *s_feeder_amount_ta;
 static lv_obj_t *s_feeder_host_ta;
+static lv_obj_t *s_feeder_schedule_note;
 static lv_obj_t *s_feeder_preview;
 static lv_obj_t *s_feeder_status;
 static lv_timer_t *s_feeder_ui_timer;
 static lv_obj_t *s_feeder_keyboard;
 static lv_obj_t *s_feeder_time_keyboard;
 static lv_obj_t *s_feeder_host_keyboard;
+static lv_obj_t *s_feeder_back_btn;
 static lv_obj_t *s_display_flip_sw;
 static lv_obj_t *s_display_brightness_slider;
 static lv_obj_t *s_display_brightness_label;
@@ -115,12 +127,38 @@ static bool time_settings_save_from_fields(void);
 static void time_settings_refresh_fields(void);
 static lv_obj_t *create_feeder_action_button(lv_obj_t *parent, const char *label, lv_event_cb_t cb);
 
+static void feeder_update_back_button_visibility(void);
+
 static void hide_keyboard(lv_obj_t *keyboard)
 {
     if (keyboard != NULL) {
         lv_keyboard_set_textarea(keyboard, NULL);
         lv_obj_add_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+        feeder_update_back_button_visibility();
     }
+}
+
+static bool feeder_keyboard_is_visible(void)
+{
+    return (s_feeder_keyboard != NULL && !lv_obj_has_flag(s_feeder_keyboard, LV_OBJ_FLAG_HIDDEN)) ||
+           (s_feeder_time_keyboard != NULL && !lv_obj_has_flag(s_feeder_time_keyboard, LV_OBJ_FLAG_HIDDEN)) ||
+           (s_feeder_host_keyboard != NULL && !lv_obj_has_flag(s_feeder_host_keyboard, LV_OBJ_FLAG_HIDDEN));
+}
+
+static void feeder_update_back_button_visibility(void)
+{
+    if (s_feeder_back_btn == NULL) {
+        return;
+    }
+
+    if (feeder_keyboard_is_visible()) {
+        lv_obj_add_flag(s_feeder_back_btn, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    lv_obj_clear_flag(s_feeder_back_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(s_feeder_back_btn, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(s_feeder_back_btn);
 }
 
 static void hide_all_keyboards(void)
@@ -133,6 +171,32 @@ static void hide_all_keyboards(void)
     hide_keyboard(s_feeder_keyboard);
     hide_keyboard(s_feeder_time_keyboard);
     hide_keyboard(s_feeder_host_keyboard);
+    feeder_update_back_button_visibility();
+}
+
+static void position_settings_keyboard(lv_obj_t *keyboard)
+{
+    if (keyboard == NULL) {
+        return;
+    }
+
+    lv_obj_add_flag(keyboard, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
+}
+
+static void show_keyboard_for_textarea(lv_obj_t *keyboard, lv_obj_t *ta, lv_keyboard_mode_t mode)
+{
+    if (keyboard == NULL || ta == NULL) {
+        return;
+    }
+
+    lv_keyboard_set_mode(keyboard, mode);
+    lv_keyboard_set_textarea(keyboard, ta);
+    position_settings_keyboard(keyboard);
+    lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(keyboard);
+    lv_obj_scroll_to_view(ta, LV_ANIM_ON);
+    feeder_update_back_button_visibility();
 }
 
 static const char *const s_time_kb_map[] = {
@@ -153,11 +217,7 @@ static void ta_focus_cb(lv_event_t *e)
 {
     lv_obj_t *ta = lv_event_get_target(e);
     lv_obj_t *keyboard = lv_event_get_user_data(e);
-    if (keyboard != NULL) {
-        lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_NUMBER);
-        lv_keyboard_set_textarea(keyboard, ta);
-        lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
-    }
+    show_keyboard_for_textarea(keyboard, ta, LV_KEYBOARD_MODE_NUMBER);
 }
 
 static void ta_defocus_cb(lv_event_t *e)
@@ -170,11 +230,7 @@ static void co2_ta_focus_cb(lv_event_t *e)
 {
     lv_obj_t *ta = lv_event_get_target(e);
     lv_obj_t *keyboard = lv_event_get_user_data(e);
-    if (keyboard != NULL) {
-        lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_USER_1);
-        lv_keyboard_set_textarea(keyboard, ta);
-        lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
-    }
+    show_keyboard_for_textarea(keyboard, ta, LV_KEYBOARD_MODE_USER_1);
 }
 
 static void attach_co2_field(lv_obj_t *ta)
@@ -187,28 +243,14 @@ static void feeder_ta_focus_cb(lv_event_t *e)
 {
     lv_obj_t *ta = lv_event_get_target(e);
     lv_obj_t *keyboard = lv_event_get_user_data(e);
-    if (keyboard != NULL) {
-        lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_USER_1);
-        lv_keyboard_set_textarea(keyboard, ta);
-        lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
-    }
+    show_keyboard_for_textarea(keyboard, ta, LV_KEYBOARD_MODE_USER_1);
 }
 
 static void feeder_number_ta_focus_cb(lv_event_t *e)
 {
     lv_obj_t *ta = lv_event_get_target(e);
     lv_obj_t *keyboard = lv_event_get_user_data(e);
-    if (keyboard != NULL) {
-        lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_NUMBER);
-        lv_keyboard_set_textarea(keyboard, ta);
-        lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-static void attach_feeder_time_field(lv_obj_t *ta)
-{
-    lv_obj_add_event_cb(ta, feeder_ta_focus_cb, LV_EVENT_FOCUSED, s_feeder_time_keyboard);
-    lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
+    show_keyboard_for_textarea(keyboard, ta, LV_KEYBOARD_MODE_NUMBER);
 }
 
 static void attach_feeder_number_field(lv_obj_t *ta)
@@ -217,9 +259,33 @@ static void attach_feeder_number_field(lv_obj_t *ta)
     lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
 }
 
+static void attach_feeder_amount_field(lv_obj_t *ta)
+{
+    attach_feeder_number_field(ta);
+}
+
+static void feeder_host_focus_cb(lv_event_t *e)
+{
+    lv_obj_t *ta = lv_event_get_target(e);
+    lv_obj_t *keyboard = lv_event_get_user_data(e);
+    show_keyboard_for_textarea(keyboard, ta, LV_KEYBOARD_MODE_TEXT_LOWER);
+
+    const char *text = lv_textarea_get_text(ta);
+    if (feeder_host_is_unconfigured(text)) {
+        lv_textarea_set_text(ta, SHELLY_ADDR_PREFIX);
+    }
+    lv_textarea_set_cursor_pos(ta, LV_TEXTAREA_CURSOR_LAST);
+}
+
+static void attach_feeder_time_field(lv_obj_t *ta)
+{
+    lv_obj_add_event_cb(ta, feeder_ta_focus_cb, LV_EVENT_FOCUSED, s_feeder_time_keyboard);
+    lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
+}
+
 static void attach_feeder_host_field(lv_obj_t *ta)
 {
-    lv_obj_add_event_cb(ta, ta_focus_cb, LV_EVENT_FOCUSED, s_feeder_host_keyboard);
+    lv_obj_add_event_cb(ta, feeder_host_focus_cb, LV_EVENT_FOCUSED, s_feeder_host_keyboard);
     lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
 }
 
@@ -409,8 +475,55 @@ static void feeder_show_status(const char *text)
     }
 }
 
+static void feeder_update_times_ui(void)
+{
+    int times = 2;
+    if (s_feeder_times_ta != NULL) {
+        times = (int)strtol(lv_textarea_get_text(s_feeder_times_ta), NULL, 10);
+        if (times < 1) {
+            times = 1;
+        }
+        if (times > 12) {
+            times = 12;
+        }
+    }
+
+    const bool single = times == 1;
+
+    if (s_feeder_start_label != NULL) {
+        if (single) {
+            lv_obj_add_flag(s_feeder_start_label, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(s_feeder_start_label, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (s_feeder_start_ta != NULL) {
+        if (single) {
+            lv_textarea_set_text(s_feeder_start_ta, "");
+            lv_obj_add_flag(s_feeder_start_ta, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(s_feeder_start_ta, LV_OBJ_FLAG_HIDDEN);
+            const char *text = lv_textarea_get_text(s_feeder_start_ta);
+            if (text == NULL || text[0] == '\0') {
+                lv_textarea_set_text(s_feeder_start_ta, "08:00");
+            }
+        }
+    }
+    if (s_feeder_schedule_note != NULL) {
+        if (single) {
+            lv_label_set_text(s_feeder_schedule_note,
+                               "1 feeding per day runs at the window end time only (start time is not used).");
+            lv_obj_remove_flag(s_feeder_schedule_note, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_feeder_schedule_note, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
 static void feeder_update_preview(void)
 {
+    feeder_update_times_ui();
+
     if (s_feeder_preview == NULL) {
         return;
     }
@@ -420,10 +533,50 @@ static void feeder_update_preview(void)
     lv_label_set_text(s_feeder_preview, preview);
 }
 
+static bool feeder_host_is_unconfigured(const char *text)
+{
+    return text == NULL || text[0] == '\0' || strcmp(text, SHELLY_ADDR_PREFIX) == 0;
+}
+
+static const char *feeder_host_text_for_save(const char *text)
+{
+    return feeder_host_is_unconfigured(text) ? "" : text;
+}
+
+static void feeder_set_host_field_text(lv_obj_t *ta, const char *stored)
+{
+    if (ta == NULL) {
+        return;
+    }
+
+    if (feeder_host_is_unconfigured(stored)) {
+        lv_textarea_set_text(ta, SHELLY_ADDR_PREFIX);
+    } else {
+        lv_textarea_set_text(ta, stored);
+    }
+}
+
+static bool feeder_field_is_focused(lv_obj_t *ta)
+{
+    return ta != NULL && lv_obj_has_state(ta, LV_STATE_FOCUSED);
+}
+
+static bool feeder_any_field_focused(void)
+{
+    return feeder_field_is_focused(s_feeder_host_ta) || feeder_field_is_focused(s_feeder_start_ta) ||
+           feeder_field_is_focused(s_feeder_end_ta) || feeder_field_is_focused(s_feeder_times_ta) ||
+           feeder_field_is_focused(s_feeder_amount_ta);
+}
+
 static bool feeder_settings_save_from_fields(void)
 {
-    if (s_feeder_start_ta == NULL || s_feeder_end_ta == NULL || s_feeder_times_ta == NULL ||
-        s_feeder_amount_ta == NULL) {
+    if (s_feeder_end_ta == NULL || s_feeder_times_ta == NULL || s_feeder_amount_ta == NULL) {
+        return false;
+    }
+
+    const int times = (int)strtol(lv_textarea_get_text(s_feeder_times_ta), NULL, 10);
+    if (times < 1 || times > 12) {
+        feeder_show_status("Feedings per day must be 1–12.");
         return false;
     }
 
@@ -431,31 +584,36 @@ static bool feeder_settings_save_from_fields(void)
     uint8_t start_m = 0;
     uint8_t end_h = 0;
     uint8_t end_m = 0;
-    if (!parse_time_hhmm(lv_textarea_get_text(s_feeder_start_ta), &start_h, &start_m) ||
-        !parse_time_hhmm(lv_textarea_get_text(s_feeder_end_ta), &end_h, &end_m)) {
-        feeder_show_status("Use HH:MM for feeding window times.");
+    if (times > 1) {
+        if (s_feeder_start_ta == NULL ||
+            !parse_time_hhmm(lv_textarea_get_text(s_feeder_start_ta), &start_h, &start_m)) {
+            feeder_show_status("Use HH:MM for feeding window start time.");
+            return false;
+        }
+    } else {
+        uint8_t stored_times = 0;
+        uint16_t stored_amount = 0;
+        aquapilot_settings_get_feeder_schedule(&start_h, &start_m, &end_h, &end_m, &stored_times, &stored_amount);
+    }
+    if (!parse_time_hhmm(lv_textarea_get_text(s_feeder_end_ta), &end_h, &end_m)) {
+        feeder_show_status("Use HH:MM for feeding window end time.");
         return false;
     }
 
-    const int times = (int)strtol(lv_textarea_get_text(s_feeder_times_ta), NULL, 10);
-    const int amount = (int)strtol(lv_textarea_get_text(s_feeder_amount_ta), NULL, 10);
-    if (times < 1 || times > 12) {
-        feeder_show_status("Feedings per day must be 1–12.");
-        return false;
-    }
-    if (amount < 1 || amount > 120) {
-        feeder_show_status("Feed amount must be 1–120 seconds.");
+    uint16_t amount_tenths = 0;
+    if (!feeder_amount_parse_seconds_text(lv_textarea_get_text(s_feeder_amount_ta), &amount_tenths)) {
+        feeder_show_status("Feed amount must be 0.1–120.0 seconds.");
         return false;
     }
 
-    if (!aquapilot_settings_set_feeder_schedule(start_h, start_m, end_h, end_m, (uint8_t)times, (uint16_t)amount)) {
+    if (!aquapilot_settings_set_feeder_schedule(start_h, start_m, end_h, end_m, (uint8_t)times, amount_tenths)) {
         feeder_show_status("Could not save feeder settings.");
         return false;
     }
 
     if (s_feeder_host_ta != NULL) {
         const char *host_txt = lv_textarea_get_text(s_feeder_host_ta);
-        if (!aquapilot_settings_set_feeder_host(host_txt != NULL ? host_txt : "")) {
+        if (!aquapilot_settings_set_feeder_host(feeder_host_text_for_save(host_txt))) {
             feeder_show_status("Use a hostname or IP for the feeder ESP32.");
             return false;
         }
@@ -463,23 +621,26 @@ static bool feeder_settings_save_from_fields(void)
 
     feeder_update_preview();
     feeder_show_status("Feeder settings saved.");
+    feeder_client_request_schedule_push();
     return true;
 }
 
-static void feeder_settings_refresh_fields(void)
+static void feeder_settings_load_fields(void)
 {
     uint8_t start_h = 8;
     uint8_t start_m = 0;
     uint8_t end_h = 20;
     uint8_t end_m = 0;
     uint8_t times_per_day = 2;
-    uint16_t amount_seconds = 3;
-    aquapilot_settings_get_feeder_schedule(&start_h, &start_m, &end_h, &end_m, &times_per_day, &amount_seconds);
+    uint16_t amount_tenths = FEEDER_AMOUNT_TENTHS_DEFAULT;
+    aquapilot_settings_get_feeder_schedule(&start_h, &start_m, &end_h, &end_m, &times_per_day, &amount_tenths);
 
     char buf[16];
-    if (s_feeder_start_ta != NULL) {
+    if (s_feeder_start_ta != NULL && times_per_day > 1) {
         format_time_hhmm(buf, sizeof(buf), start_h, start_m);
         lv_textarea_set_text(s_feeder_start_ta, buf);
+    } else if (s_feeder_start_ta != NULL) {
+        lv_textarea_set_text(s_feeder_start_ta, "");
     }
     if (s_feeder_end_ta != NULL) {
         format_time_hhmm(buf, sizeof(buf), end_h, end_m);
@@ -490,13 +651,13 @@ static void feeder_settings_refresh_fields(void)
         lv_textarea_set_text(s_feeder_times_ta, buf);
     }
     if (s_feeder_amount_ta != NULL) {
-        snprintf(buf, sizeof(buf), "%u", (unsigned)amount_seconds);
+        feeder_amount_format_seconds_text(buf, sizeof(buf), amount_tenths);
         lv_textarea_set_text(s_feeder_amount_ta, buf);
     }
     if (s_feeder_host_ta != NULL) {
         char host[AQUAPILOT_FEEDER_HOST_MAX];
         aquapilot_settings_get_feeder_host(host, sizeof(host));
-        lv_textarea_set_text(s_feeder_host_ta, host);
+        feeder_set_host_field_text(s_feeder_host_ta, host);
     }
 
     bool enabled = false;
@@ -507,6 +668,16 @@ static void feeder_settings_refresh_fields(void)
         } else {
             lv_obj_clear_state(s_feeder_enabled_sw, LV_STATE_CHECKED);
         }
+    }
+
+    feeder_update_preview();
+    feeder_show_status(feeder_service_status_text());
+}
+
+static void feeder_refresh_dynamic_ui(void)
+{
+    if (feeder_any_field_focused()) {
+        return;
     }
 
     feeder_update_preview();
@@ -774,11 +945,7 @@ static void shelly_ta_focus_cb(lv_event_t *e)
     lv_obj_t *ta = lv_event_get_target(e);
     lv_obj_t *keyboard = lv_event_get_user_data(e);
 
-    if (keyboard != NULL) {
-        lv_keyboard_set_mode(keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
-        lv_keyboard_set_textarea(keyboard, ta);
-        lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
-    }
+    show_keyboard_for_textarea(keyboard, ta, LV_KEYBOARD_MODE_TEXT_LOWER);
 
     const char *text = lv_textarea_get_text(ta);
     if (shelly_address_is_unconfigured(text)) {
@@ -1255,13 +1422,13 @@ static void feeder_stop_ui_timer(void)
 
 static void feeder_refresh_ui(void)
 {
-    feeder_settings_refresh_fields();
+    feeder_settings_load_fields();
 }
 
 static void feeder_ui_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    feeder_refresh_ui();
+    feeder_refresh_dynamic_ui();
 }
 
 static void feeder_start_ui_timer(void)
@@ -1277,13 +1444,19 @@ static void feeder_enabled_switch_cb(lv_event_t *e)
     const bool enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
     aquapilot_settings_set_feeder_enabled(enabled);
     feeder_show_status(enabled ? "Automatic feeder enabled" : "Automatic feeder disabled");
+    feeder_client_request_schedule_push();
 }
 
 static void feeder_feed_now_cb(lv_event_t *e)
 {
     (void)e;
-    if (feeder_service_feed_now() != ESP_OK) {
-        feeder_show_status("Could not start feeding.");
+    const esp_err_t err = feeder_service_feed_now();
+    if (err == ESP_OK) {
+        feeder_show_status("Feeding...");
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        feeder_show_status("Feeder is busy. Wait for the current feed to finish.");
+    } else {
+        feeder_show_status(feeder_service_status_text());
     }
 }
 
@@ -1677,6 +1850,43 @@ static lv_obj_t *create_feeder_input_row(lv_obj_t *parent)
     return row;
 }
 
+static lv_obj_t *create_feeder_column(lv_obj_t *parent, uint8_t flex_grow, lv_coord_t fixed_width)
+{
+    lv_obj_t *col = lv_obj_create(parent);
+    lv_obj_remove_style_all(col);
+    if (fixed_width > 0) {
+        lv_obj_set_width(col, fixed_width);
+    } else {
+        lv_obj_set_width(col, 0);
+        lv_obj_set_flex_grow(col, flex_grow);
+    }
+    lv_obj_set_height(col, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(col, 6, 0);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+    return col;
+}
+
+static lv_obj_t *create_feeder_field_label(lv_obj_t *parent, const char *text)
+{
+    lv_obj_t *lbl = create_field_label(parent, text);
+    lv_obj_set_width(lbl, LV_PCT(100));
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_MODE_WRAP);
+    return lbl;
+}
+
+static lv_obj_t *create_feeder_narrow_field(lv_obj_t *parent, const char *placeholder, lv_coord_t width)
+{
+    lv_obj_t *ta = lv_textarea_create(parent);
+    lv_obj_set_width(ta, width);
+    lv_obj_set_height(ta, 48);
+    lv_textarea_set_one_line(ta, true);
+    lv_textarea_set_max_length(ta, 8);
+    lv_textarea_set_placeholder_text(ta, placeholder);
+    return ta;
+}
+
 static lv_obj_t *create_band_grid_row(lv_obj_t *parent)
 {
     lv_obj_t *row = lv_obj_create(parent);
@@ -1710,7 +1920,7 @@ static lv_obj_t *create_band_grid_cell(lv_obj_t *parent, const char *label_text,
 static lv_obj_t *create_feeder_action_button(lv_obj_t *parent, const char *label, lv_event_cb_t cb)
 {
     lv_obj_t *btn = lv_button_create(parent);
-    lv_obj_set_width(btn, 200);
+    lv_obj_set_width(btn, LV_PCT(100));
     lv_obj_set_height(btn, 48);
     lv_obj_set_style_bg_color(btn, lv_color_hex(FEEDER_BTN_GREEN), 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x2EA043), LV_STATE_PRESSED);
@@ -1737,7 +1947,9 @@ static void create_feeder_screen(void)
     lv_obj_set_flex_flow(s_feeder_screen, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s_feeder_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(s_feeder_screen, 8, 0);
-    lv_obj_remove_flag(s_feeder_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_feeder_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(s_feeder_screen, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_feeder_screen, LV_SCROLLBAR_MODE_AUTO);
 
     create_screen_title(s_feeder_screen, "Automatic Feeder");
 
@@ -1754,18 +1966,10 @@ static void create_feeder_screen(void)
     lv_obj_set_style_pad_column(content_row, 16, 0);
     lv_obj_remove_flag(content_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *fields_col = create_feeder_input_row(content_row);
-    lv_obj_set_flex_grow(fields_col, 1);
-    lv_obj_set_style_pad_row(fields_col, 6, 0);
+    lv_obj_t *host_col = create_feeder_column(content_row, FEEDER_HOST_COL_GROW, 0);
+    lv_obj_t *mid_col = create_feeder_column(content_row, FEEDER_MID_COL_GROW, 0);
 
-    lv_obj_t *actions_col = lv_obj_create(content_row);
-    lv_obj_remove_style_all(actions_col);
-    lv_obj_set_width(actions_col, 200);
-    lv_obj_set_height(actions_col, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(actions_col, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(actions_col, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(actions_col, 8, 0);
-    lv_obj_remove_flag(actions_col, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *actions_col = create_feeder_column(content_row, 0, FEEDER_ACTIONS_COL_WIDTH);
 
     lv_obj_t *enable_lbl = lv_label_create(actions_col);
     lv_label_set_text(enable_lbl, "Enable");
@@ -1776,24 +1980,37 @@ static void create_feeder_screen(void)
     lv_obj_set_size(s_feeder_enabled_sw, 78, 46);
     lv_obj_add_event_cb(s_feeder_enabled_sw, feeder_enabled_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    create_field_label(fields_col, "Feeder ESP32 host (IP or hostname)");
-    s_feeder_host_ta = create_text_field(fields_col, "192.168.1.50", AQUAPILOT_FEEDER_HOST_MAX - 1);
+    create_feeder_field_label(host_col, "Feeder ESP32 host (IP or hostname)");
+    s_feeder_host_ta = create_text_field(host_col, SHELLY_ADDR_PREFIX, AQUAPILOT_FEEDER_HOST_MAX - 1);
+    lv_obj_set_width(s_feeder_host_ta, LV_PCT(100));
 
-    create_field_label(fields_col, "Feeding window start (HH:MM, 24h)");
-    s_feeder_start_ta = create_one_line_field(fields_col, "08:00");
+    s_feeder_start_label = create_feeder_field_label(host_col, "Feeding window start (HH:MM, 24h)");
+    s_feeder_start_ta = create_feeder_narrow_field(host_col, "08:00", FEEDER_TIME_INPUT_WIDTH);
     lv_textarea_set_max_length(s_feeder_start_ta, 5);
 
-    create_field_label(fields_col, "Feeding window end (HH:MM, 24h)");
-    s_feeder_end_ta = create_one_line_field(fields_col, "20:00");
+    create_feeder_field_label(host_col, "Feeding window end (HH:MM, 24h)");
+    s_feeder_end_ta = create_feeder_narrow_field(host_col, "20:00", FEEDER_TIME_INPUT_WIDTH);
     lv_textarea_set_max_length(s_feeder_end_ta, 5);
 
-    create_field_label(fields_col, "Feedings per day");
-    s_feeder_times_ta = create_one_line_field(fields_col, "2");
+    create_feeder_field_label(mid_col, "Feedings per day");
+    s_feeder_times_ta = create_feeder_narrow_field(mid_col, "2", FEEDER_NUM_INPUT_WIDTH);
     lv_textarea_set_max_length(s_feeder_times_ta, 2);
 
-    create_field_label(fields_col, "Feeding amount (seconds)");
-    s_feeder_amount_ta = create_one_line_field(fields_col, "3");
-    lv_textarea_set_max_length(s_feeder_amount_ta, 3);
+    create_feeder_field_label(mid_col, "Feeding amount (seconds)");
+    s_feeder_amount_ta = create_feeder_narrow_field(mid_col, "3.0", FEEDER_AMOUNT_INPUT_WIDTH);
+    lv_textarea_set_max_length(s_feeder_amount_ta, 6);
+
+    lv_obj_t *fields_col = create_feeder_input_row(form);
+    lv_obj_set_style_pad_row(fields_col, 6, 0);
+
+    s_feeder_schedule_note = lv_label_create(fields_col);
+    lv_label_set_text(s_feeder_schedule_note,
+                      "1 feeding per day runs at the window end time only (start time is not used).");
+    lv_obj_set_style_text_color(s_feeder_schedule_note, lv_color_hex(VALUE_COLOR), 0);
+    lv_obj_set_style_text_font(s_feeder_schedule_note, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(s_feeder_schedule_note, LV_PCT(100));
+    lv_label_set_long_mode(s_feeder_schedule_note, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_add_flag(s_feeder_schedule_note, LV_OBJ_FLAG_HIDDEN);
 
     s_feeder_preview = lv_label_create(fields_col);
     lv_label_set_text(s_feeder_preview, "Feedings: --");
@@ -1801,8 +2018,20 @@ static void create_feeder_screen(void)
     lv_obj_set_style_text_font(s_feeder_preview, &lv_font_montserrat_16, 0);
     lv_obj_set_width(s_feeder_preview, LV_PCT(100));
 
-    create_feeder_action_button(actions_col, "Feed Now", feeder_feed_now_cb);
-    create_feeder_action_button(actions_col, "Skip Next Feeding", feeder_skip_next_cb);
+    lv_obj_t *button_row = lv_obj_create(form);
+    lv_obj_remove_style_all(button_row);
+    lv_obj_set_width(button_row, LV_PCT(100));
+    lv_obj_set_height(button_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(button_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(button_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(button_row, 16, 0);
+    lv_obj_remove_flag(button_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *feed_now_btn = create_feeder_action_button(button_row, "Feed Now", feeder_feed_now_cb);
+    lv_obj_set_flex_grow(feed_now_btn, 1);
+
+    lv_obj_t *skip_btn = create_feeder_action_button(button_row, "Skip Next Feeding", feeder_skip_next_cb);
+    lv_obj_set_flex_grow(skip_btn, 1);
 
     s_feeder_status = lv_label_create(form);
     lv_label_set_text(s_feeder_status, "");
@@ -1814,12 +2043,14 @@ static void create_feeder_screen(void)
     lv_obj_set_width(s_feeder_keyboard, LV_PCT(100));
     lv_obj_set_height(s_feeder_keyboard, 180);
     lv_obj_add_flag(s_feeder_keyboard, LV_OBJ_FLAG_HIDDEN);
+    position_settings_keyboard(s_feeder_keyboard);
     bind_keyboard(s_feeder_keyboard);
 
     s_feeder_time_keyboard = lv_keyboard_create(s_feeder_screen);
     lv_obj_set_width(s_feeder_time_keyboard, LV_PCT(100));
     lv_obj_set_height(s_feeder_time_keyboard, 180);
     lv_obj_add_flag(s_feeder_time_keyboard, LV_OBJ_FLAG_HIDDEN);
+    position_settings_keyboard(s_feeder_time_keyboard);
     lv_keyboard_set_map(s_feeder_time_keyboard, LV_KEYBOARD_MODE_USER_1, s_time_kb_map, s_time_kb_ctrl);
     bind_keyboard(s_feeder_time_keyboard);
 
@@ -1827,16 +2058,19 @@ static void create_feeder_screen(void)
     lv_obj_set_width(s_feeder_host_keyboard, LV_PCT(100));
     lv_obj_set_height(s_feeder_host_keyboard, 180);
     lv_obj_add_flag(s_feeder_host_keyboard, LV_OBJ_FLAG_HIDDEN);
+    position_settings_keyboard(s_feeder_host_keyboard);
     bind_keyboard(s_feeder_host_keyboard);
 
     attach_feeder_host_field(s_feeder_host_ta);
     attach_feeder_time_field(s_feeder_start_ta);
     attach_feeder_time_field(s_feeder_end_ta);
     attach_feeder_number_field(s_feeder_times_ta);
-    attach_feeder_number_field(s_feeder_amount_ta);
-    feeder_settings_refresh_fields();
+    attach_feeder_amount_field(s_feeder_amount_ta);
+    feeder_settings_load_fields();
 
-    create_back_button(s_feeder_screen, feeder_back_cb);
+    s_feeder_back_btn = create_back_button(s_feeder_screen, feeder_back_cb);
+    lv_obj_add_flag(s_feeder_back_btn, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    feeder_update_back_button_visibility();
 }
 
 static void filter_calibrate_cb(lv_event_t *e)
