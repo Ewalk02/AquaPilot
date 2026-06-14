@@ -116,7 +116,8 @@ void tile_feeder_status_update(tile_feeder_status_t *tile)
         lv_label_set_text(tile->countdown_label, "");
     } else {
         const bool enabled = feeder_service_is_enabled();
-        const bool healthy = enabled && feeder_client_is_online() && !missed;
+        const bool healthy =
+            enabled && feeder_client_is_online() && feeder_client_is_schedule_synced() && !missed;
 
         if (healthy) {
             apply_ok_style(tile->root);

@@ -175,10 +175,11 @@ static int next_slot_index(int now_min, int now_sec, int start_min, int end_min,
     for (int slot = 0; slot < times; slot++) {
         const int slot_min = feeder_slot_minute(slot, start_min, end_min, times);
         const int secs = seconds_until_slot(now_min, now_sec, slot_min);
-        if (secs < best_seconds) {
-            best_seconds = secs;
-            best_slot = slot;
+        if (secs <= 0 || secs >= best_seconds) {
+            continue;
         }
+        best_seconds = secs;
+        best_slot = slot;
     }
 
     return best_slot;
@@ -200,10 +201,11 @@ static int effective_next_slot(int now_min, int now_sec, int start_min, int end_
             }
             const int slot_min = feeder_slot_minute(candidate, start_min, end_min, times);
             const int secs = seconds_until_slot(now_min, now_sec, slot_min);
-            if (secs < best_seconds) {
-                best_seconds = secs;
-                best_slot = candidate;
+            if (secs <= 0 || secs >= best_seconds) {
+                continue;
             }
+            best_seconds = secs;
+            best_slot = candidate;
         }
         return best_slot;
     }
@@ -573,10 +575,14 @@ void feeder_service_format_countdown(char *buf, size_t len)
     }
 
     const int slot_min = feeder_slot_minute(slot, start_min, end_min, times);
-    const uint32_t secs = (uint32_t)seconds_until_slot(now_min, now_sec, slot_min);
+    const int secs = seconds_until_slot(now_min, now_sec, slot_min);
+    if (secs <= 0) {
+        snprintf(buf, len, "Next feeding soon");
+        return;
+    }
 
     char duration[24];
-    format_duration(secs, duration, sizeof(duration));
+    format_duration((uint32_t)secs, duration, sizeof(duration));
     snprintf(buf, len, "Next in %s", duration);
 }
 

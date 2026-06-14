@@ -2492,6 +2492,7 @@ static bool time_settings_save_from_fields(void)
 
     aquapilot_time_apply_settings();
     time_settings_refresh_fields();
+    feeder_client_request_schedule_push();
     time_show_status("Time settings saved.");
     return true;
 }

@@ -22,7 +22,7 @@ typedef enum {
 } light_status_mode_t;
 
 bool light_service_is_on(void);
-/** True when a recent BLE reading is available (not stale). */
+/** True when a recent BLE reading is available, including a short display grace period. */
 bool light_service_status_is_known(void);
 bool light_service_has_status(void);
 light_status_mode_t light_service_get_mode(void);

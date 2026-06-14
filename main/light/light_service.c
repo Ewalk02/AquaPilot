@@ -17,12 +17,72 @@
 static const char *TAG = "light_svc";
 
 #define BOOT_POLL_DELAY_US (30LL * 1000 * 1000)
+#define LIGHT_DISPLAY_GRACE_MS 90000
 
 static bool s_stale_recovery_requested;
+
+typedef struct {
+    bool valid;
+    bool on;
+    light_status_mode_t mode;
+    uint8_t brightness_pct;
+    uint32_t last_fresh_ms;
+} light_display_cache_t;
+
+static light_display_cache_t s_display;
+
+static uint32_t light_now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000ULL);
+}
 
 static bool status_is_fresh(const fluval_status_t *st)
 {
     return st != NULL && st->status_valid && !st->stale;
+}
+
+static light_status_mode_t mode_from_fluval(fluval_mode_t mode)
+{
+    if (mode == FLUVAL_MODE_AUTO) {
+        return LIGHT_STATUS_AUTO;
+    }
+    if (mode == FLUVAL_MODE_MANUAL) {
+        return LIGHT_STATUS_MANUAL;
+    }
+    return LIGHT_STATUS_UNKNOWN;
+}
+
+static void light_cache_from_status(const fluval_status_t *st)
+{
+    s_display.valid = true;
+    s_display.on = st->avg_output > 0;
+    s_display.mode = mode_from_fluval(st->mode);
+    s_display.brightness_pct = st->avg_output;
+    s_display.last_fresh_ms = light_now_ms();
+}
+
+static bool light_sync_fresh(void)
+{
+    fluval_status_t st;
+    if (!fluval_ble_get_status(&st) || !status_is_fresh(&st)) {
+        return false;
+    }
+
+    light_cache_from_status(&st);
+    return true;
+}
+
+static bool light_display_is_active(void)
+{
+    if (light_sync_fresh()) {
+        return true;
+    }
+
+    if (!s_display.valid) {
+        return false;
+    }
+
+    return (light_now_ms() - s_display.last_fresh_ms) < LIGHT_DISPLAY_GRACE_MS;
 }
 
 static void log_fresh_status(const fluval_status_t *st)
@@ -122,17 +182,16 @@ esp_err_t light_service_init(void)
 
 bool light_service_is_on(void)
 {
-    fluval_status_t st;
-    if (!fluval_ble_get_status(&st) || !status_is_fresh(&st)) {
+    if (!light_display_is_active()) {
         return false;
     }
-    return st.avg_output > 0;
+
+    return s_display.on;
 }
 
 bool light_service_status_is_known(void)
 {
-    fluval_status_t st;
-    return fluval_ble_get_status(&st) && status_is_fresh(&st);
+    return light_display_is_active();
 }
 
 bool light_service_has_status(void)
@@ -142,34 +201,23 @@ bool light_service_has_status(void)
 
 light_status_mode_t light_service_get_mode(void)
 {
-    fluval_status_t st;
-    if (!fluval_ble_get_status(&st) || !status_is_fresh(&st)) {
+    if (!light_display_is_active()) {
         return LIGHT_STATUS_UNKNOWN;
     }
 
-    if (st.mode == FLUVAL_MODE_AUTO) {
-        return LIGHT_STATUS_AUTO;
-    }
-    if (st.mode == FLUVAL_MODE_MANUAL) {
-        return LIGHT_STATUS_MANUAL;
-    }
-    return LIGHT_STATUS_UNKNOWN;
+    return s_display.mode;
 }
 
 uint8_t light_service_get_brightness_pct(void)
 {
-    fluval_status_t st;
-    if (!fluval_ble_get_status(&st) || !status_is_fresh(&st)) {
+    if (!light_display_is_active()) {
         return 0;
     }
-    return st.avg_output;
+
+    return s_display.brightness_pct;
 }
 
 bool light_service_is_light_online(void)
 {
-    fluval_status_t st;
-    if (!fluval_ble_get_status(&st)) {
-        return false;
-    }
-    return status_is_fresh(&st);
+    return light_display_is_active();
 }

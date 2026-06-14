@@ -20,6 +20,9 @@ esp_err_t feeder_client_init(void);
 
 bool feeder_client_is_online(void);
 
+/** True after the current schedule was successfully pushed to the feeder device. */
+bool feeder_client_is_schedule_synced(void);
+
 /** True when the last status poll reported the feeder motor is running. */
 bool feeder_client_is_feeding(void);
 

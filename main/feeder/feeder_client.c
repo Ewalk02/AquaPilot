@@ -28,8 +28,19 @@ static const char *TAG = "feeder_client";
 static volatile bool s_online;
 static volatile bool s_remote_feeding;
 static volatile bool s_push_requested;
+static volatile bool s_schedule_synced;
 static uint8_t s_miss_streak;
 static int64_t s_last_success_ms;
+
+static void feeder_mark_schedule_unsynced(void)
+{
+    s_schedule_synced = false;
+}
+
+static void feeder_mark_schedule_synced(void)
+{
+    s_schedule_synced = true;
+}
 
 static void feeder_mark_online(void)
 {
@@ -285,10 +296,12 @@ static esp_err_t push_schedule_internal(void)
     const esp_err_t err = http_request(url, HTTP_METHOD_POST, payload, &status);
     if (err == ESP_OK && status >= 200 && status < 300) {
         feeder_mark_online();
+        feeder_mark_schedule_synced();
         ESP_LOGI(TAG, "schedule pushed to %s", host);
         return ESP_OK;
     }
 
+    feeder_mark_schedule_unsynced();
     ESP_LOGW(TAG, "schedule push failed host=%s err=%s status=%d", host, esp_err_to_name(err), status);
     return err != ESP_OK ? err : ESP_FAIL;
 }
@@ -300,6 +313,7 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
     (void)data;
 
     if (id == IP_EVENT_STA_GOT_IP) {
+        feeder_mark_schedule_unsynced();
         s_push_requested = true;
     }
 }
@@ -316,12 +330,14 @@ static void monitor_task(void *arg)
         refresh_online();
 
         const int64_t now_ms = (int64_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        if (s_push_requested || (now_ms - last_sync_ms) >= SYNC_INTERVAL_MS) {
-            s_push_requested = false;
-            if (aquapilot_settings_has_feeder_host()) {
-                if (push_schedule_internal() == ESP_OK) {
-                    last_sync_ms = now_ms;
-                }
+        const bool periodic_due = (now_ms - last_sync_ms) >= SYNC_INTERVAL_MS;
+        const bool should_push =
+            aquapilot_settings_has_feeder_host() && (s_push_requested || !s_schedule_synced || periodic_due);
+
+        if (should_push) {
+            if (push_schedule_internal() == ESP_OK) {
+                last_sync_ms = now_ms;
+                s_push_requested = false;
             }
         }
 
@@ -331,6 +347,9 @@ static void monitor_task(void *arg)
 
 esp_err_t feeder_client_init(void)
 {
+    feeder_mark_schedule_unsynced();
+    s_push_requested = true;
+
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_ip_event, NULL);
 
     if (xTaskCreate(monitor_task, "feeder_client", 8192, NULL, 4, NULL) != pdPASS) {
@@ -352,6 +371,15 @@ bool feeder_client_is_online(void)
     }
 
     return s_online;
+}
+
+bool feeder_client_is_schedule_synced(void)
+{
+    if (!aquapilot_settings_has_feeder_host()) {
+        return false;
+    }
+
+    return s_schedule_synced;
 }
 
 bool feeder_client_is_feeding(void)
@@ -438,6 +466,7 @@ bool feeder_client_get_status_json(char *buf, size_t len)
 
 void feeder_client_request_schedule_push(void)
 {
+    feeder_mark_schedule_unsynced();
     s_push_requested = true;
 }
 
