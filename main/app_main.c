@@ -11,7 +11,7 @@
 #include "schedule/feeder_service.h"
 #include "schedule/aquapilot_time.h"
 #include "heater/heater_service.h"
-#include "light/light_service.h"
+#include "maintenance/maintenance_tracker.h"
 #include "safety/heater_override.h"
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
@@ -24,6 +24,7 @@
 #include "sensors/sht3x_sensor.h"
 #include "storage/sd_storage.h"
 #include "storage/temp_history.h"
+#include "storage/water_sample_history.h"
 
 static const char *TAG = "aquapilot";
 
@@ -102,14 +103,19 @@ void app_main(void)
         ESP_LOGW(TAG, "temperature history init failed");
     }
 
+    esp_err_t wsample_err = water_sample_history_init();
+    if (wsample_err != ESP_OK) {
+        ESP_LOGW(TAG, "water sample history init failed");
+    }
+
+    esp_err_t maint_err = maintenance_tracker_init();
+    if (maint_err != ESP_OK) {
+        ESP_LOGW(TAG, "maintenance tracker init failed");
+    }
+
     esp_err_t heater_err = heater_service_init();
     if (heater_err != ESP_OK) {
         ESP_LOGW(TAG, "heater BLE init failed (temperature tile will wait)");
-    }
-
-    esp_err_t light_err = light_service_init();
-    if (light_err != ESP_OK) {
-        ESP_LOGW(TAG, "light BLE init failed (light tile will wait)");
     }
 
     platform_init();

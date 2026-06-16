@@ -8,8 +8,8 @@ static const char *TAG = "aquapilot_ui";
 
 void aquapilot_ui_init(void)
 {
-    screen_settings_create();
-    screen_wifi_create();
     screen_main_create();
+    screen_wifi_create();
+    screen_settings_create();
     ESP_LOGI(TAG, "dashboard grid and settings ready");
 }

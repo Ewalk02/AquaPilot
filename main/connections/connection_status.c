@@ -2,25 +2,20 @@
 
 #include "ble/ble_central_manager.h"
 #include "esp_timer.h"
-#include "fluval_ble.h"
 #include "heater/chihiros_ble.h"
 #include "net/wifi_manager.h"
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
 #include "feeder/feeder_client.h"
 
-#define HEATER_DISPLAY_GRACE_MS    90000
-#define LIGHT_DISPLAY_GRACE_MS     90000
+#define HEATER_DISPLAY_GRACE_MS 90000
 
 typedef struct {
     bool led_on;
 } ble_conn_led_state_t;
 
 static ble_conn_led_state_t s_heater_led;
-static ble_conn_led_state_t s_light_led;
-static bool s_light_poll_was_active;
 static uint32_t s_heater_last_success_ms;
-static uint32_t s_light_last_success_ms;
 
 static uint32_t conn_now_ms(void)
 {
@@ -36,11 +31,6 @@ static bool within_display_grace(uint32_t last_success_ms, uint32_t grace_ms)
     return (conn_now_ms() - last_success_ms) < grace_ms;
 }
 
-static bool heater_handoff_active(void)
-{
-    return ble_central_manager_is_light_exclusive() || fluval_ble_is_poll_window_active();
-}
-
 static void mark_connected(ble_conn_led_state_t *st)
 {
     st->led_on = true;
@@ -53,7 +43,6 @@ static bool heater_connection_led(void)
         return within_display_grace(s_heater_last_success_ms, HEATER_DISPLAY_GRACE_MS) || s_heater_led.led_on;
     }
 
-    const bool handoff = heater_handoff_active();
     const bool fresh_status = st.status_valid && !st.stale;
 
     if (st.connected || fresh_status) {
@@ -62,49 +51,11 @@ static bool heater_connection_led(void)
         return true;
     }
 
-    if (handoff) {
-        return within_display_grace(s_heater_last_success_ms, HEATER_DISPLAY_GRACE_MS) || s_heater_led.led_on;
-    }
-
     if (within_display_grace(s_heater_last_success_ms, HEATER_DISPLAY_GRACE_MS)) {
         return true;
     }
 
     s_heater_led.led_on = false;
-    return false;
-}
-
-static bool light_connection_led(void)
-{
-    fluval_status_t st = {0};
-    if (!fluval_ble_get_status(&st)) {
-        return within_display_grace(s_light_last_success_ms, LIGHT_DISPLAY_GRACE_MS) || s_light_led.led_on;
-    }
-
-    const bool poll_active = fluval_ble_is_poll_window_active();
-    const bool fresh_status = st.status_valid && !st.stale;
-
-    if (st.connected || fresh_status) {
-        s_light_last_success_ms = conn_now_ms();
-        mark_connected(&s_light_led);
-        s_light_poll_was_active = poll_active;
-        return true;
-    }
-
-    if (poll_active) {
-        s_light_poll_was_active = true;
-        return within_display_grace(s_light_last_success_ms, LIGHT_DISPLAY_GRACE_MS) || s_light_led.led_on;
-    }
-
-    if (s_light_poll_was_active) {
-        s_light_poll_was_active = false;
-    }
-
-    if (within_display_grace(s_light_last_success_ms, LIGHT_DISPLAY_GRACE_MS)) {
-        return true;
-    }
-
-    s_light_led.led_on = false;
     return false;
 }
 
@@ -121,8 +72,6 @@ bool connection_status_is_on(connection_id_t id)
         return co2_power_monitor_plug_is_online();
     case CONNECTION_FILTER:
         return filter_power_monitor_plug_is_online();
-    case CONNECTION_LIGHT:
-        return light_connection_led();
     case CONNECTION_FEEDER:
         return feeder_client_is_online();
     default:
@@ -143,8 +92,6 @@ const char *connection_status_label(connection_id_t id)
         return "Heater";
     case CONNECTION_FILTER:
         return "Filter";
-    case CONNECTION_LIGHT:
-        return "Light";
     case CONNECTION_FEEDER:
         return "Feeder";
     default:

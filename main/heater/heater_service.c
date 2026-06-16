@@ -9,8 +9,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "heater_console.h"
-#include "light/fluval_ble.h"
-#include "light/light_service.h"
 #include "net/wifi_manager.h"
 #include "storage/aquapilot_settings.h"
 
@@ -76,7 +74,6 @@ static void wifi_defer_timeout_cb(void *arg)
 
 static void on_heater_session_done(void)
 {
-    light_service_request_poll();
 }
 
 static void try_apply_saved_setpoint(void)
@@ -120,15 +117,13 @@ static void ble_tick_task(void *arg)
 
     while (true) {
         ble_central_manager_tick();
-        light_service_tick();
         refresh_from_ble_status();
 
         if (!s_wifi_sta_requested && chihiros_ble_has_valid_status()) {
             request_wifi_sta_if_needed("heater status received");
         }
 
-        if (!fluval_ble_is_poll_window_active() && chihiros_ble_is_session_active() &&
-            chihiros_ble_get_session_mode() == CHIHIROS_BLE_SESSION_SETPOINT) {
+        if (chihiros_ble_is_session_active() && chihiros_ble_get_session_mode() == CHIHIROS_BLE_SESSION_SETPOINT) {
             try_apply_saved_setpoint();
         }
 

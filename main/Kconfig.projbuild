@@ -27,4 +27,18 @@ menu "AquaPilot Configuration"
             Advertised BLE name prefix for the Fluval Plant 4.0 aquarium light.
             Scan connects to the first device whose name starts with this prefix.
 
+    config AQUAPILOT_WSAMPLE_SAVE_TRACE
+        bool "Trace water sample Save button / flicker debug"
+        default y
+        help
+            Log wsample_ui timeline, focus events, and invalidate-area counts to serial
+            when Save Sample is pressed. Disable after debugging.
+
+    config AQUAPILOT_WSAMPLE_SAVE_SKIP_SD
+        bool "Water sample save: skip SD worker (UI-only debug)"
+        default n
+        depends on AQUAPILOT_WSAMPLE_SAVE_TRACE
+        help
+            On Save, run only the UI batch (no SD I/O). Use to see if flicker is SD-related.
+
 endmenu

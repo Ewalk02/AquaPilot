@@ -53,6 +53,7 @@ static esp_err_t mount_once(void)
         }
     }
     host.pwr_ctrl_handle = s_pwr_ctrl;
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     const sdmmc_slot_config_t slot_config = {
         .cd = SDMMC_SLOT_NO_CD,
@@ -70,6 +71,7 @@ static esp_err_t mount_once(void)
     esp_err_t ret;
     esp_err_t last_err = ESP_FAIL;
     for (size_t i = 0; i < sizeof(freq_khz) / sizeof(freq_khz[0]); i++) {
+        esp_task_wdt_reset();
         host.max_freq_khz = freq_khz[i];
         ESP_LOGI(TAG, "trying SD mount at %d kHz", freq_khz[i]);
 
@@ -122,7 +124,13 @@ esp_err_t aquapilot_sd_mount(void)
     }
 
     ensure_io_mutex();
-    return mount_once();
+    if (!lock_io(pdMS_TO_TICKS(5000))) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const esp_err_t err = mount_once();
+    unlock_io();
+    return err;
 }
 
 esp_err_t aquapilot_sd_remount(void)
@@ -198,23 +206,19 @@ bool aquapilot_sd_ensure_mounted(uint32_t timeout_ms)
         return true;
     }
 
-    if (!s_mount_started) {
-        if (aquapilot_sd_start_mount_task() != ESP_OK) {
-            ESP_LOGE(TAG, "could not start mount task");
-            return false;
-        }
-    }
-
     const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
-    while (!s_mount_done) {
+    while (!s_mounted && xTaskGetTickCount() < deadline) {
         esp_task_wdt_reset();
-        if (xTaskGetTickCount() >= deadline) {
-            ESP_LOGE(TAG, "mount wait timed out (mounted=%d)", (int)s_mounted);
-            return s_mounted;
+        if (aquapilot_sd_mount() == ESP_OK) {
+            s_mount_done = true;
+            return true;
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(250));
     }
 
+    if (!s_mounted) {
+        ESP_LOGE(TAG, "mount ensure timed out after %u ms", (unsigned)timeout_ms);
+    }
     return s_mounted;
 }
 

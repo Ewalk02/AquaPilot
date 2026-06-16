@@ -11,6 +11,9 @@ CONFIG_SPIRAM=y
 
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
+# Water sample Save flicker debug (disable after investigation)
+CONFIG_AQUAPILOT_WSAMPLE_SAVE_TRACE=y
+
 # Waveshare P4 boards report chip rev v1.x
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_100=y
@@ -52,8 +55,9 @@ CONFIG_BT_NIMBLE_SM_SC=y
 CONFIG_ESP_HOSTED_ENABLE_BT_NIMBLE=y
 CONFIG_ESP_HOSTED_NIMBLE_HCI_VHCI=y
 
-# LVGL draw buffers in PSRAM (see app_main.c)
-CONFIG_LV_USE_BUILTIN_MALLOC=y
+# LVGL: use system heap (PSRAM-backed) — 128 KB builtin pool is too small for all screens
+CONFIG_LV_USE_BUILTIN_MALLOC=n
+CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_MEM_SIZE_KILOBYTES=128
 
 # Typography for 7-inch dashboard

@@ -39,6 +39,9 @@ static lv_obj_t *create_status_item(lv_obj_t *parent, connection_id_t id, lv_obj
     *led_out = led;
 
     lv_obj_t *label = lv_label_create(row);
+    if (label == NULL) {
+        return row;
+    }
     lv_label_set_text(label, connection_status_label(id));
     lv_obj_set_style_text_color(label, lv_color_hex(LABEL_COLOR), 0);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);

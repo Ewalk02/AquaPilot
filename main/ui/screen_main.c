@@ -10,7 +10,7 @@
 #include "tile_filter_watts.h"
 #include "tile_feeder_status.h"
 #include "tile_heater_power.h"
-#include "tile_light_status.h"
+#include "tile_maintenance.h"
 #include "tile_settings.h"
 #include "tile_temp.h"
 #include "tile_temp_history.h"
@@ -28,20 +28,28 @@ static tile_heater_power_t s_heater_power_tile;
 static tile_connections_t s_connections_tile;
 static tile_ambient_t s_ambient_tile;
 static tile_clock_t s_clock_tile;
-static tile_light_status_t s_light_status_tile;
+static tile_maintenance_t s_maintenance_tile;
 static tile_feeder_status_t s_feeder_status_tile;
 static tile_temp_history_t s_temp_history_tile;
+
+static bool dashboard_is_active(void)
+{
+    return s_screen != NULL && lv_screen_active() == s_screen;
+}
 
 static void update_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    if (!dashboard_is_active()) {
+        return;
+    }
     tile_co2_status_update(&s_co2_status_tile);
     tile_co2_schedule_update(&s_co2_schedule_tile);
     tile_temp_update(&s_temp_tile);
     tile_heater_power_update(&s_heater_power_tile);
     tile_filter_status_update(&s_filter_status_tile);
     tile_filter_watts_update(&s_filter_watts_tile);
-    tile_light_status_update(&s_light_status_tile);
+    tile_maintenance_update(&s_maintenance_tile);
     tile_connections_update(&s_connections_tile);
     tile_ambient_update(&s_ambient_tile);
     tile_clock_update(&s_clock_tile);
@@ -52,6 +60,9 @@ static void update_timer_cb(lv_timer_t *timer)
 static void heater_power_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    if (!dashboard_is_active()) {
+        return;
+    }
     if (tile_heater_power_needs_fast_update()) {
         tile_heater_power_update(&s_heater_power_tile);
     }
@@ -60,6 +71,9 @@ static void heater_power_timer_cb(lv_timer_t *timer)
 static void co2_status_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    if (!dashboard_is_active()) {
+        return;
+    }
     if (tile_co2_status_needs_fast_update()) {
         tile_co2_status_update(&s_co2_status_tile);
     }
@@ -68,6 +82,9 @@ static void co2_status_timer_cb(lv_timer_t *timer)
 static void filter_watts_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
+    if (!dashboard_is_active()) {
+        return;
+    }
     if (tile_filter_watts_needs_fast_update()) {
         tile_filter_watts_update(&s_filter_watts_tile);
         tile_filter_status_update(&s_filter_status_tile);
@@ -126,8 +143,8 @@ screen_main_t screen_main_create(void)
     s_filter_watts_tile = tile_filter_watts_create(grid);
     grid_add_cell(grid, s_filter_watts_tile.root, 2, 1);
 
-    s_light_status_tile = tile_light_status_create(grid);
-    grid_add_cell(grid, s_light_status_tile.root, 0, 2);
+    s_maintenance_tile = tile_maintenance_create(grid);
+    grid_add_cell(grid, s_maintenance_tile.root, 0, 2);
 
     s_temp_history_tile = tile_temp_history_create(grid);
     grid_add_cell(grid, s_temp_history_tile.root, 1, 2);

@@ -1,29 +1,21 @@
 #include "lan_http.h"
 
-#include "ble/ble_central_manager.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "light/fluval_ble.h"
 
 static SemaphoreHandle_t s_http_lock;
 static int64_t s_last_http_end_us;
 
 bool lan_http_should_defer(void)
 {
-    return ble_central_manager_is_light_exclusive() || fluval_ble_is_poll_window_active();
+    return false;
 }
 
 bool lan_http_wait_until_ready(TickType_t max_wait_ticks)
 {
-    const TickType_t start = xTaskGetTickCount();
-    while (lan_http_should_defer()) {
-        if ((xTaskGetTickCount() - start) >= max_wait_ticks) {
-            return false;
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    (void)max_wait_ticks;
     return true;
 }
 

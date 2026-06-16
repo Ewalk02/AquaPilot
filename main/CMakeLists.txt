@@ -5,8 +5,12 @@ idf_component_register(
         "ui/screen_main.c"
         "ui/screen_wifi.c"
         "ui/screen_settings.c"
+        "ui/screen_maintenance_track.c"
+        "ui/screen_water_sampling.c"
+        "ui/screen_water_sample_chart.c"
         "ui/timezone_options.c"
         "ui/ui_nav.c"
+        "ui/ui_buttons.c"
         "ui/tile_common.c"
         "ui/tile_temp.c"
         "ui/tile_heater_power.c"
@@ -20,7 +24,7 @@ idf_component_register(
         "ui/tile_connections.c"
         "ui/tile_ambient.c"
         "ui/tile_clock.c"
-        "ui/tile_light_status.c"
+        "ui/tile_maintenance.c"
         "schedule/co2_schedule.c"
         "schedule/co2_automation.c"
         "schedule/feeder_service.c"
@@ -42,19 +46,18 @@ idf_component_register(
         "safety/filter_calibration.c"
         "safety/maintenance_mode.c"
         "safety/equipment_restore.c"
+        "maintenance/maintenance_tracker.c"
         "storage/wifi_creds_nvs.c"
         "storage/aquapilot_nvs.c"
         "storage/aquapilot_settings.c"
         "storage/temp_range_config.c"
         "storage/temp_history.c"
+        "storage/water_sample_history.c"
         "storage/sd_storage.c"
         "ble/ble_central_manager.c"
         "heater/chihiros_ble.c"
         "heater/heater_console.c"
         "heater/heater_service.c"
-        "light/fluval_ble.c"
-        "light/light_console.c"
-        "light/light_service.c"
     INCLUDE_DIRS
         "."
         "ui"
@@ -64,9 +67,9 @@ idf_component_register(
         "net"
         "safety"
         "storage"
+        "maintenance"
         "ble"
         "heater"
-        "light"
         "feeder"
         "display"
     REQUIRES
@@ -82,7 +85,6 @@ idf_component_register(
         console
         bt
         chihiros_heater_protocol
-        fluval_light_protocol
         driver
         fatfs
 )

@@ -5,7 +5,11 @@
 #include "safety/filter_power_monitor.h"
 #include "safety/maintenance_mode.h"
 #include "screen_wifi.h"
+#include "screen_maintenance_track.h"
+#include "screen_water_sampling.h"
+#include "screen_water_sample_chart.h"
 #include "storage/aquapilot_settings.h"
+#include "ui_buttons.h"
 #include "ui_nav.h"
 
 #include "chihiros_heater_protocol.h"
@@ -1125,10 +1129,9 @@ static void apply_screen_style(lv_obj_t *obj)
 
 static void style_menu_button(lv_obj_t *btn)
 {
+    ui_style_flat_button(btn, BTN_BG_COLOR, 0x30363D);
     lv_obj_set_width(btn, LV_PCT(100));
     lv_obj_set_height(btn, 56);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(BTN_BG_COLOR), 0);
-    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(btn, lv_color_hex(BORDER_COLOR), 0);
     lv_obj_set_style_border_width(btn, 1, 0);
     lv_obj_set_style_radius(btn, 10, 0);
@@ -1410,6 +1413,13 @@ static void menu_maintenance_cb(lv_event_t *e)
         maintenance_start_ui_timer();
         lv_screen_load(s_maintenance_screen);
     }
+}
+
+static void menu_tank_maintenance_cb(lv_event_t *e)
+{
+    ui_button_clear_pressed(lv_event_get_target(e));
+    hide_all_keyboards();
+    screen_maintenance_track_show();
 }
 
 static void feeder_stop_ui_timer(void)
@@ -1748,6 +1758,7 @@ static void create_hub_screen(void)
     create_menu_button_grid(menu, "Automatic Feeder", menu_feeder_cb, 0, 4);
     create_menu_button_grid(menu, "Display", menu_display_cb, 1, 4);
     create_menu_button_grid(menu, "Graphing", menu_graphing_cb, 0, 5);
+    create_menu_button_grid(menu, "Tank Maintenance", menu_tank_maintenance_cb, 1, 5);
 
     create_back_button(s_hub_screen, hub_back_cb);
 }
@@ -2686,6 +2697,9 @@ void screen_settings_create(void)
     create_display_screen();
     create_graphing_screen();
     create_filter_screen();
+    screen_maintenance_track_create();
+    screen_water_sampling_create();
+    screen_water_sample_chart_create();
     ui_nav_set_settings_screen(s_hub_screen);
 }
 

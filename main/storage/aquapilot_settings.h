@@ -86,3 +86,10 @@ bool aquapilot_settings_set_display_brightness(uint8_t brightness_pct);
 
 bool aquapilot_settings_get_temp_graph_logging_enabled(bool *enabled);
 bool aquapilot_settings_set_temp_graph_logging_enabled(bool enabled);
+
+#define AQUAPILOT_MAINT_ACTIVITY_COUNT 5
+
+bool aquapilot_settings_get_maint_next_due(int activity, int32_t *epoch);
+bool aquapilot_settings_set_maint_next_due(int activity, int32_t epoch);
+bool aquapilot_settings_update_maint_next_due(int activity, int32_t epoch);
+bool aquapilot_settings_commit(void);
