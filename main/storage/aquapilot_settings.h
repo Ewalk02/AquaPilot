@@ -88,6 +88,14 @@ bool aquapilot_settings_get_temp_graph_logging_enabled(bool *enabled);
 bool aquapilot_settings_set_temp_graph_logging_enabled(bool enabled);
 
 #define AQUAPILOT_MAINT_ACTIVITY_COUNT 5
+#define AQUAPILOT_MAINT_CUSTOM_MAX       8
+#define AQUAPILOT_MAINT_CUSTOM_NAME_LEN 28
+
+typedef struct {
+    char name[AQUAPILOT_MAINT_CUSTOM_NAME_LEN];
+    uint8_t interval_days;
+    int32_t next_due_epoch;
+} aquapilot_maint_custom_t;
 
 bool aquapilot_settings_get_maint_next_due(int activity, int32_t *epoch);
 bool aquapilot_settings_set_maint_next_due(int activity, int32_t epoch);
@@ -95,4 +103,8 @@ bool aquapilot_settings_update_maint_next_due(int activity, int32_t epoch);
 bool aquapilot_settings_get_maint_interval_days(int activity, uint8_t *days);
 bool aquapilot_settings_set_maint_interval_days(int activity, uint8_t days);
 bool aquapilot_settings_update_maint_interval_days(int activity, uint8_t days);
+bool aquapilot_settings_get_maint_custom(int slot, aquapilot_maint_custom_t *out);
+bool aquapilot_settings_set_maint_custom(int slot, const aquapilot_maint_custom_t *item);
+bool aquapilot_settings_update_maint_custom(int slot, const aquapilot_maint_custom_t *item);
+int aquapilot_settings_find_free_maint_custom_slot(void);
 bool aquapilot_settings_commit(void);

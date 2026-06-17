@@ -5,6 +5,7 @@
 #include "esp_timer.h"
 #include "storage/aquapilot_settings.h"
 
+#include <ctype.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,7 +14,7 @@
 
 static const char *TAG = "maint_track";
 
-static const uint8_t s_default_interval_days[MAINT_ACTIVITY_COUNT] = {
+static const uint8_t s_default_interval_days[MAINT_BUILTIN_COUNT] = {
     21, /* Water Change */
     7,  /* Water Sampling */
     90, /* Filter Cleaning */
@@ -21,7 +22,7 @@ static const uint8_t s_default_interval_days[MAINT_ACTIVITY_COUNT] = {
     21, /* Fill Feeder */
 };
 
-static const char *s_labels[MAINT_ACTIVITY_COUNT] = {
+static const char *s_labels[MAINT_BUILTIN_COUNT] = {
     "Water Change",
     "Water Sampling",
     "Filter Cleaning",
@@ -54,20 +55,6 @@ static void schedule_deferred_save(void)
     (void)esp_timer_start_once(s_save_timer, 200000);
 }
 
-static bool set_next_due(maintenance_activity_t id, int32_t epoch, bool persist_now)
-{
-    if (!aquapilot_settings_update_maint_next_due((int)id, epoch)) {
-        return false;
-    }
-
-    if (persist_now) {
-        return aquapilot_settings_commit();
-    }
-
-    schedule_deferred_save();
-    return true;
-}
-
 static time_t today_midnight_local(void)
 {
     const time_t now = time(NULL);
@@ -82,10 +69,45 @@ static time_t today_midnight_local(void)
     return mktime(&local);
 }
 
+static bool get_custom_item(maintenance_activity_t id, aquapilot_maint_custom_t *out)
+{
+    if (!maintenance_is_custom(id) || out == NULL) {
+        return false;
+    }
+
+    return aquapilot_settings_get_maint_custom(maintenance_custom_slot(id), out);
+}
+
+static bool set_custom_item(maintenance_activity_t id, const aquapilot_maint_custom_t *item, bool persist_now)
+{
+    if (!maintenance_is_custom(id) || item == NULL) {
+        return false;
+    }
+
+    if (!aquapilot_settings_update_maint_custom(maintenance_custom_slot(id), item)) {
+        return false;
+    }
+
+    if (persist_now) {
+        return aquapilot_settings_commit();
+    }
+
+    schedule_deferred_save();
+    return true;
+}
+
 static int32_t get_next_due(maintenance_activity_t id)
 {
+    if (maintenance_is_custom(id)) {
+        aquapilot_maint_custom_t item = {0};
+        if (!get_custom_item(id, &item)) {
+            return 0;
+        }
+        return item.next_due_epoch;
+    }
+
     int32_t epoch = 0;
-    if (!aquapilot_settings_get_maint_next_due((int)id, &epoch)) {
+    if (!aquapilot_settings_get_maint_next_due(id, &epoch)) {
         return 0;
     }
     return epoch;
@@ -93,19 +115,86 @@ static int32_t get_next_due(maintenance_activity_t id)
 
 static bool set_next_due_epoch(maintenance_activity_t id, int32_t epoch)
 {
-    return set_next_due(id, epoch, false);
+    if (maintenance_is_custom(id)) {
+        aquapilot_maint_custom_t item = {0};
+        if (!get_custom_item(id, &item) || item.name[0] == '\0') {
+            return false;
+        }
+        item.next_due_epoch = epoch;
+        return set_custom_item(id, &item, false);
+    }
+
+    if (!aquapilot_settings_update_maint_next_due(id, epoch)) {
+        return false;
+    }
+
+    schedule_deferred_save();
+    return true;
 }
 
 static int interval_days_for(maintenance_activity_t id)
 {
+    if (maintenance_is_custom(id)) {
+        aquapilot_maint_custom_t item = {0};
+        if (get_custom_item(id, &item) && item.interval_days > 0) {
+            return (int)item.interval_days;
+        }
+        return 1;
+    }
+
     uint8_t days = 0;
-    if (aquapilot_settings_get_maint_interval_days((int)id, &days) && days > 0) {
+    if (aquapilot_settings_get_maint_interval_days(id, &days) && days > 0) {
         return (int)days;
     }
-    if (id >= 0 && id < MAINT_ACTIVITY_COUNT) {
+    if (maintenance_is_builtin(id)) {
         return (int)s_default_interval_days[id];
     }
     return 1;
+}
+
+static int collect_active_ids(maintenance_activity_t *out, int max)
+{
+    int count = 0;
+
+    for (int i = 0; i < MAINT_BUILTIN_COUNT && count < max; i++) {
+        out[count++] = i;
+    }
+
+    for (int slot = 0; slot < MAINT_CUSTOM_MAX && count < max; slot++) {
+        const maintenance_activity_t id = MAINT_BUILTIN_COUNT + slot;
+        if (maintenance_custom_is_active(id)) {
+            out[count++] = id;
+        }
+    }
+
+    return count;
+}
+
+static void trim_name(char *dest, size_t dest_len, const char *src)
+{
+    if (dest == NULL || dest_len == 0) {
+        return;
+    }
+
+    dest[0] = '\0';
+    if (src == NULL) {
+        return;
+    }
+
+    while (*src != '\0' && isspace((unsigned char)*src)) {
+        src++;
+    }
+
+    size_t len = strlen(src);
+    while (len > 0 && isspace((unsigned char)src[len - 1])) {
+        len--;
+    }
+
+    if (len >= dest_len) {
+        len = dest_len - 1;
+    }
+    memcpy(dest, src, len);
+    dest[len] = '\0';
 }
 
 esp_err_t maintenance_tracker_init(void)
@@ -116,20 +205,64 @@ esp_err_t maintenance_tracker_init(void)
 
 int maintenance_activity_count(void)
 {
-    return MAINT_ACTIVITY_COUNT;
+    return MAINT_BUILTIN_COUNT + (MAINT_CUSTOM_MAX - maintenance_custom_slots_available());
+}
+
+bool maintenance_custom_is_active(maintenance_activity_t id)
+{
+    if (!maintenance_is_custom(id)) {
+        return false;
+    }
+
+    aquapilot_maint_custom_t item = {0};
+    return get_custom_item(id, &item) && item.name[0] != '\0';
+}
+
+int maintenance_custom_slots_available(void)
+{
+    int free_slots = 0;
+    for (int slot = 0; slot < MAINT_CUSTOM_MAX; slot++) {
+        aquapilot_maint_custom_t item = {0};
+        if (aquapilot_settings_get_maint_custom(slot, &item) && item.name[0] == '\0') {
+            free_slots++;
+        }
+    }
+    return free_slots;
 }
 
 const char *maintenance_activity_label(maintenance_activity_t id)
 {
-    if (id < 0 || id >= MAINT_ACTIVITY_COUNT) {
-        return "?";
+    if (maintenance_is_builtin(id)) {
+        return s_labels[id];
     }
-    return s_labels[id];
+
+    if (maintenance_is_custom(id)) {
+        static char s_custom_label[MAINT_CUSTOM_MAX][AQUAPILOT_MAINT_CUSTOM_NAME_LEN];
+        const int slot = maintenance_custom_slot(id);
+        if (slot < 0 || slot >= MAINT_CUSTOM_MAX) {
+            return "?";
+        }
+
+        aquapilot_maint_custom_t item = {0};
+        if (!get_custom_item(id, &item) || item.name[0] == '\0') {
+            return "?";
+        }
+
+        strncpy(s_custom_label[slot], item.name, sizeof(s_custom_label[slot]) - 1);
+        s_custom_label[slot][sizeof(s_custom_label[slot]) - 1] = '\0';
+        return s_custom_label[slot];
+    }
+
+    return "?";
 }
 
 int maintenance_days_until_due(maintenance_activity_t id)
 {
     if (id < 0 || id >= MAINT_ACTIVITY_COUNT || !aquapilot_time_is_ready()) {
+        return INT32_MIN;
+    }
+
+    if (maintenance_is_custom(id) && !maintenance_custom_is_active(id)) {
         return INT32_MIN;
     }
 
@@ -153,11 +286,14 @@ maintenance_tile_severity_t maintenance_tile_severity(void)
         return MAINT_TILE_SEVERITY_UNKNOWN;
     }
 
+    maintenance_activity_t ids[MAINT_ACTIVITY_COUNT];
+    const int count = collect_active_ids(ids, MAINT_ACTIVITY_COUNT);
+
     bool any_overdue = false;
     bool any_soon = false;
 
-    for (int i = 0; i < MAINT_ACTIVITY_COUNT; i++) {
-        const int days = maintenance_days_until_due((maintenance_activity_t)i);
+    for (int i = 0; i < count; i++) {
+        const int days = maintenance_days_until_due(ids[i]);
         if (days < 0) {
             any_overdue = true;
         } else if (days <= 2) {
@@ -190,13 +326,11 @@ static int compare_urgency(const void *a, const void *b)
 void maintenance_get_top3(maintenance_activity_t out_ids[3], int out_days[3])
 {
     maintenance_activity_t order[MAINT_ACTIVITY_COUNT];
-    for (int i = 0; i < MAINT_ACTIVITY_COUNT; i++) {
-        order[i] = (maintenance_activity_t)i;
-    }
+    const int count = collect_active_ids(order, MAINT_ACTIVITY_COUNT);
 
     if (aquapilot_time_is_ready()) {
-        for (int i = 0; i < MAINT_ACTIVITY_COUNT - 1; i++) {
-            for (int j = i + 1; j < MAINT_ACTIVITY_COUNT; j++) {
+        for (int i = 0; i < count - 1; i++) {
+            for (int j = i + 1; j < count; j++) {
                 if (compare_urgency(&order[i], &order[j]) > 0) {
                     const maintenance_activity_t tmp = order[i];
                     order[i] = order[j];
@@ -208,10 +342,10 @@ void maintenance_get_top3(maintenance_activity_t out_ids[3], int out_days[3])
 
     for (int i = 0; i < 3; i++) {
         if (out_ids != NULL) {
-            out_ids[i] = order[i];
+            out_ids[i] = i < count ? order[i] : MAINT_WATER_CHANGE;
         }
         if (out_days != NULL) {
-            out_days[i] = maintenance_days_until_due(order[i]);
+            out_days[i] = i < count ? maintenance_days_until_due(order[i]) : INT32_MIN;
         }
     }
 }
@@ -219,6 +353,10 @@ void maintenance_get_top3(maintenance_activity_t out_ids[3], int out_days[3])
 bool maintenance_complete(maintenance_activity_t id)
 {
     if (id < 0 || id >= MAINT_ACTIVITY_COUNT || !aquapilot_time_is_ready()) {
+        return false;
+    }
+
+    if (maintenance_is_custom(id) && !maintenance_custom_is_active(id)) {
         return false;
     }
 
@@ -232,13 +370,17 @@ bool maintenance_complete(maintenance_activity_t id)
         return false;
     }
 
-    ESP_LOGI(TAG, "%s completed, next due epoch %ld", s_labels[id], (long)next_due);
+    ESP_LOGI(TAG, "%s completed, next due epoch %ld", maintenance_activity_label(id), (long)next_due);
     return true;
 }
 
 bool maintenance_delay_one_week(maintenance_activity_t id)
 {
     if (id < 0 || id >= MAINT_ACTIVITY_COUNT || !aquapilot_time_is_ready()) {
+        return false;
+    }
+
+    if (maintenance_is_custom(id) && !maintenance_custom_is_active(id)) {
         return false;
     }
 
@@ -262,7 +404,7 @@ bool maintenance_delay_one_week(maintenance_activity_t id)
         return false;
     }
 
-    ESP_LOGI(TAG, "%s delayed 1 week, next due epoch %ld", s_labels[id], (long)next_due);
+    ESP_LOGI(TAG, "%s delayed 1 week, next due epoch %ld", maintenance_activity_label(id), (long)next_due);
     return true;
 }
 
@@ -280,13 +422,63 @@ bool maintenance_set_interval_days(maintenance_activity_t id, int days)
         return false;
     }
 
-    if (!aquapilot_settings_update_maint_interval_days((int)id, (uint8_t)days)) {
+    if (maintenance_is_custom(id)) {
+        aquapilot_maint_custom_t item = {0};
+        if (!get_custom_item(id, &item) || item.name[0] == '\0') {
+            return false;
+        }
+        item.interval_days = (uint8_t)days;
+        if (!set_custom_item(id, &item, false)) {
+            return false;
+        }
+        ESP_LOGI(TAG, "%s interval set to %d days", item.name, days);
+        return true;
+    }
+
+    if (!aquapilot_settings_update_maint_interval_days(id, (uint8_t)days)) {
         return false;
     }
 
     schedule_deferred_save();
     ESP_LOGI(TAG, "%s interval set to %d days", s_labels[id], days);
     return true;
+}
+
+int maintenance_add_custom(const char *name, int interval_days)
+{
+    if (interval_days < 1 || interval_days > 255) {
+        return -1;
+    }
+
+    char trimmed[AQUAPILOT_MAINT_CUSTOM_NAME_LEN];
+    trim_name(trimmed, sizeof(trimmed), name);
+    if (trimmed[0] == '\0') {
+        return -1;
+    }
+
+    const int slot = aquapilot_settings_find_free_maint_custom_slot();
+    if (slot < 0) {
+        return -1;
+    }
+
+    aquapilot_maint_custom_t item = {0};
+    strncpy(item.name, trimmed, sizeof(item.name) - 1);
+    item.name[sizeof(item.name) - 1] = '\0';
+    item.interval_days = (uint8_t)interval_days;
+
+    const time_t today = today_midnight_local();
+    if (today > 0 && aquapilot_time_is_ready()) {
+        item.next_due_epoch = (int32_t)(today + (time_t)interval_days * 86400LL);
+    } else {
+        item.next_due_epoch = 0;
+    }
+
+    if (!aquapilot_settings_set_maint_custom(slot, &item)) {
+        return -1;
+    }
+
+    ESP_LOGI(TAG, "added custom task \"%s\" every %d days (slot %d)", item.name, interval_days, slot);
+    return MAINT_BUILTIN_COUNT + slot;
 }
 
 void maintenance_format_due_text(maintenance_activity_t id, char *buf, size_t len)
