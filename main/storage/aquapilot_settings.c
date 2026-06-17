@@ -1090,9 +1090,13 @@ static void upgrade_v11_blob(const settings_blob_v11_t *loaded)
     ESP_LOGI(TAG, "upgraded settings v11 → v12");
 }
 
+static void convert_feeder_amount_seconds_field_to_tenths(void)
+{
+    s_settings.feeder_amount_tenths = feeder_amount_seconds_to_tenths(s_settings.feeder_amount_tenths);
+}
+
 static void finalize_settings_v18(void)
 {
-    s_settings.feeder_amount_tenths = feeder_amount_migrate_legacy_seconds(s_settings.feeder_amount_tenths);
     s_settings.magic = SETTINGS_MAGIC_V18;
 }
 
@@ -1177,6 +1181,7 @@ static void upgrade_v13_blob(const settings_blob_v13_t *loaded)
     s_settings.display_flip_180 = 0;
     s_settings.display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
     s_settings.temp_graph_logging_enabled = 1;
+    convert_feeder_amount_seconds_field_to_tenths();
     finalize_settings_v18();
     ensure_shelly_strings_null_terminated();
     save_settings();
@@ -1191,6 +1196,7 @@ static void upgrade_v14_blob(const settings_blob_v14_t *loaded)
     s_settings.display_brightness_pct = DEFAULT_DISPLAY_BRIGHTNESS_PCT;
     s_settings.temp_graph_logging_enabled = 1;
     s_settings.shelly_password[0] = '\0';
+    convert_feeder_amount_seconds_field_to_tenths();
     finalize_settings_v18();
     ensure_shelly_strings_null_terminated();
     save_settings();
@@ -1203,6 +1209,7 @@ static void upgrade_v15_blob(const settings_blob_v15_t *loaded)
     memcpy(&s_settings, loaded, sizeof(settings_blob_v15_t));
     s_settings.temp_graph_logging_enabled = 1;
     s_settings.shelly_password[0] = '\0';
+    convert_feeder_amount_seconds_field_to_tenths();
     finalize_settings_v18();
     ensure_shelly_strings_null_terminated();
     save_settings();
@@ -1214,6 +1221,7 @@ static void upgrade_v16_blob(const settings_blob_v16_t *loaded)
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v16_t));
     s_settings.shelly_password[0] = '\0';
+    convert_feeder_amount_seconds_field_to_tenths();
     finalize_settings_v18();
     ensure_shelly_strings_null_terminated();
     save_settings();
