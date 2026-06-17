@@ -13,7 +13,7 @@
 
 static const char *TAG = "maint_track";
 
-static const int s_interval_days[MAINT_ACTIVITY_COUNT] = {
+static const uint8_t s_default_interval_days[MAINT_ACTIVITY_COUNT] = {
     21, /* Water Change */
     7,  /* Water Sampling */
     90, /* Filter Cleaning */
@@ -94,6 +94,18 @@ static int32_t get_next_due(maintenance_activity_t id)
 static bool set_next_due_epoch(maintenance_activity_t id, int32_t epoch)
 {
     return set_next_due(id, epoch, false);
+}
+
+static int interval_days_for(maintenance_activity_t id)
+{
+    uint8_t days = 0;
+    if (aquapilot_settings_get_maint_interval_days((int)id, &days) && days > 0) {
+        return (int)days;
+    }
+    if (id >= 0 && id < MAINT_ACTIVITY_COUNT) {
+        return (int)s_default_interval_days[id];
+    }
+    return 1;
 }
 
 esp_err_t maintenance_tracker_init(void)
@@ -215,7 +227,7 @@ bool maintenance_complete(maintenance_activity_t id)
         return false;
     }
 
-    const int32_t next_due = (int32_t)(today + (time_t)s_interval_days[id] * 86400LL);
+    const int32_t next_due = (int32_t)(today + (time_t)interval_days_for(id) * 86400LL);
     if (!set_next_due_epoch(id, next_due)) {
         return false;
     }
@@ -251,6 +263,29 @@ bool maintenance_delay_one_week(maintenance_activity_t id)
     }
 
     ESP_LOGI(TAG, "%s delayed 1 week, next due epoch %ld", s_labels[id], (long)next_due);
+    return true;
+}
+
+int maintenance_interval_days(maintenance_activity_t id)
+{
+    if (id < 0 || id >= MAINT_ACTIVITY_COUNT) {
+        return 1;
+    }
+    return interval_days_for(id);
+}
+
+bool maintenance_set_interval_days(maintenance_activity_t id, int days)
+{
+    if (id < 0 || id >= MAINT_ACTIVITY_COUNT || days < 1 || days > 255) {
+        return false;
+    }
+
+    if (!aquapilot_settings_update_maint_interval_days((int)id, (uint8_t)days)) {
+        return false;
+    }
+
+    schedule_deferred_save();
+    ESP_LOGI(TAG, "%s interval set to %d days", s_labels[id], days);
     return true;
 }
 

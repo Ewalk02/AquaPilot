@@ -37,4 +37,7 @@ void maintenance_get_top3(maintenance_activity_t out_ids[3], int out_days[3]);
 bool maintenance_complete(maintenance_activity_t id);
 bool maintenance_delay_one_week(maintenance_activity_t id);
 
+int maintenance_interval_days(maintenance_activity_t id);
+bool maintenance_set_interval_days(maintenance_activity_t id, int days);
+
 void maintenance_format_due_text(maintenance_activity_t id, char *buf, size_t len);

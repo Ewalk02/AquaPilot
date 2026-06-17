@@ -92,4 +92,7 @@ bool aquapilot_settings_set_temp_graph_logging_enabled(bool enabled);
 bool aquapilot_settings_get_maint_next_due(int activity, int32_t *epoch);
 bool aquapilot_settings_set_maint_next_due(int activity, int32_t epoch);
 bool aquapilot_settings_update_maint_next_due(int activity, int32_t epoch);
+bool aquapilot_settings_get_maint_interval_days(int activity, uint8_t *days);
+bool aquapilot_settings_set_maint_interval_days(int activity, uint8_t days);
+bool aquapilot_settings_update_maint_interval_days(int activity, uint8_t days);
 bool aquapilot_settings_commit(void);

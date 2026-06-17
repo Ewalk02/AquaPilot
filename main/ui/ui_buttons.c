@@ -33,3 +33,15 @@ void ui_button_clear_pressed(lv_obj_t *btn)
         lv_obj_remove_state(btn, LV_STATE_PRESSED);
     }
 }
+
+lv_obj_t *ui_create_back_button(lv_obj_t *parent, lv_event_cb_t cb)
+{
+    lv_obj_t *btn = lv_button_create(parent);
+    lv_obj_set_size(btn, 140, 48);
+    lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *lbl = lv_label_create(btn);
+    lv_label_set_text(lbl, "Back");
+    lv_obj_center(lbl);
+    return btn;
+}
