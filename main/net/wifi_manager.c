@@ -453,13 +453,13 @@ const char *aquapilot_wifi_status_text(void)
     case AQUAPILOT_WIFI_STATUS_CONNECTED: {
         char ip[16];
         if (aquapilot_wifi_get_sta_ip(ip, sizeof(ip))) {
-            snprintf(buf, sizeof(buf), "Connected — %s", ip);
+            snprintf(buf, sizeof(buf), "Connected - %s", ip);
             return buf;
         }
         return "Wi-Fi connected";
     }
     case AQUAPILOT_WIFI_STATUS_CONNECTING:
-        snprintf(buf, sizeof(buf), "Connecting… (attempt %lu)", (unsigned long)st.reconnect_attempt);
+        snprintf(buf, sizeof(buf), "Connecting... (attempt %lu)", (unsigned long)st.reconnect_attempt);
         return buf;
     case AQUAPILOT_WIFI_STATUS_DISCONNECTED:
         if (st.reason_text[0] != '\0') {

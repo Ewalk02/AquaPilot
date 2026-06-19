@@ -379,14 +379,10 @@ void screen_water_sample_chart_create(void)
     s_x_mid_label = create_axis_label(x_row, LV_TEXT_ALIGN_CENTER);
     s_x_right_label = create_axis_label(x_row, LV_TEXT_ALIGN_RIGHT);
 
-    lv_obj_t *back = lv_button_create(s_screen);
-    lv_obj_set_size(back, 140, 48);
-    ui_style_flat_button(back, 0x21262D, 0x30363D);
-    lv_obj_add_event_cb(back, back_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *back_lbl = lv_label_create(back);
-    lv_label_set_text(back_lbl, "Back");
-    lv_obj_set_style_text_color(back_lbl, lv_color_hex(TITLE_COLOR), 0);
-    lv_obj_center(back_lbl);
+    lv_obj_t *back = ui_create_back_button(s_screen, back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 void screen_water_sample_chart_show_to(water_sample_metric_t metric, lv_obj_t *return_screen)

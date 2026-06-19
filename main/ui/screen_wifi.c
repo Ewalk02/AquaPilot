@@ -4,6 +4,7 @@
 #include "net/wifi_manager.h"
 #include "storage/wifi_creds_nvs.h"
 #include "screen_settings.h"
+#include "ui_buttons.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -107,7 +108,7 @@ static void btn_connect_cb(lv_event_t *e)
     aquapilot_wifi_apply_credentials_async(ssid, pass != NULL ? pass : "");
 
     if (s_label_status != NULL) {
-        lv_label_set_text(s_label_status, "Saving credentials, connecting…");
+        lv_label_set_text(s_label_status, "Saving credentials, connecting...");
     }
 }
 
@@ -190,27 +191,17 @@ void screen_wifi_create(void)
     lv_obj_add_event_cb(s_ta_password, ta_focus_cb, LV_EVENT_FOCUSED, NULL);
     lv_obj_add_event_cb(s_ta_password, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
 
-    lv_obj_t *btn_row = lv_obj_create(s_screen);
-    lv_obj_remove_style_all(btn_row);
-    lv_obj_set_width(btn_row, LV_PCT(100));
-    lv_obj_set_height(btn_row, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(btn_row, 16, 0);
-
-    lv_obj_t *btn_connect = lv_button_create(btn_row);
+    lv_obj_t *btn_connect = lv_button_create(s_screen);
     lv_obj_set_size(btn_connect, 220, 48);
     lv_obj_add_event_cb(btn_connect, btn_connect_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl_connect = lv_label_create(btn_connect);
     lv_label_set_text(lbl_connect, "Connect");
     lv_obj_center(lbl_connect);
 
-    lv_obj_t *btn_back = lv_button_create(btn_row);
-    lv_obj_set_size(btn_back, 140, 48);
-    lv_obj_add_event_cb(btn_back, btn_back_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *lbl_back = lv_label_create(btn_back);
-    lv_label_set_text(lbl_back, "Back");
-    lv_obj_center(lbl_back);
+    lv_obj_t *back = ui_create_back_button(s_screen, btn_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 
     s_keyboard = lv_keyboard_create(s_screen);
     lv_obj_set_width(s_keyboard, LV_PCT(100));

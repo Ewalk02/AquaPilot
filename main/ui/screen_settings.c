@@ -1720,7 +1720,11 @@ static void create_graphing_screen(void)
     create_graphing_metric_buttons(form);
 
     graphing_refresh_fields();
-    create_back_button(s_graphing_screen, sub_back_cb);
+
+    lv_obj_t *back = ui_create_back_button(s_graphing_screen, sub_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 static void create_display_screen(void)
@@ -1767,7 +1771,10 @@ static void create_display_screen(void)
     lv_obj_add_event_cb(s_display_brightness_slider, display_brightness_slider_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     display_refresh_fields();
-    create_back_button(s_display_screen, sub_back_cb);
+    lv_obj_t *back = ui_create_back_button(s_display_screen, sub_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 static lv_obj_t *create_menu_button_grid(lv_obj_t *grid, const char *label, lv_event_cb_t cb, int col, int row)
@@ -1879,7 +1886,10 @@ static void create_temp_range_screen(void)
     attach_temp_field(s_temp_delta_minus_ta);
     temp_settings_refresh_fields();
 
-    create_back_button(s_temp_range_screen, temp_settings_back_cb);
+    lv_obj_t *back = ui_create_back_button(s_temp_range_screen, temp_settings_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 static void create_co2_screen(void)
@@ -1913,7 +1923,10 @@ static void create_co2_screen(void)
     attach_co2_field(s_co2_off_ta);
     co2_refresh_fields();
 
-    create_back_button(s_co2_screen, co2_back_cb);
+    lv_obj_t *back = ui_create_back_button(s_co2_screen, co2_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 static lv_obj_t *create_feeder_input_row(lv_obj_t *parent)
@@ -2274,7 +2287,10 @@ static void create_filter_screen(void)
     attach_filter_band_field(s_filter_red_cutoff_band_ta);
     filter_bands_refresh_fields();
 
-    create_back_button(s_filter_screen, filter_back_cb);
+    lv_obj_t *back = ui_create_back_button(s_filter_screen, filter_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
     filter_refresh_status();
 }
 
@@ -2334,7 +2350,10 @@ static void create_shelly_screen(void)
     attach_shelly_field(s_shelly_co2_ta);
     shelly_refresh_fields();
 
-    create_back_button(s_shelly_screen, shelly_back_cb);
+    lv_obj_t *back = ui_create_back_button(s_shelly_screen, shelly_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 static void create_safety_screen(void)
@@ -2443,7 +2462,10 @@ static void create_safety_screen(void)
     lv_obj_add_event_cb(s_co2_power_monitor_sw, co2_power_monitor_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     safety_refresh_fields();
-    create_back_button(s_safety_screen, sub_back_cb);
+    lv_obj_t *back = ui_create_back_button(s_safety_screen, sub_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 static void create_maintenance_screen(void)
@@ -2490,7 +2512,10 @@ static void create_maintenance_screen(void)
     lv_obj_set_width(s_maintenance_status, LV_PCT(100));
 
     maintenance_refresh_fields();
-    create_back_button(s_maintenance_screen, maintenance_back_cb);
+    lv_obj_t *back = ui_create_back_button(s_maintenance_screen, maintenance_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 static void time_show_status(const char *text)
@@ -2744,7 +2769,10 @@ static void create_time_screen(void)
     attach_manual_time_field(s_manual_time_ta);
     time_settings_refresh_fields();
 
-    create_back_button(s_time_screen, time_settings_back_cb);
+    lv_obj_t *back = ui_create_back_button(s_time_screen, time_settings_back_cb);
+    lv_obj_add_flag(back, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(back, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    lv_obj_move_foreground(back);
 }
 
 void screen_settings_create(void)
