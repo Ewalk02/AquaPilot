@@ -23,6 +23,7 @@
 #define Y_AXIS_WIDTH    40
 
 static lv_obj_t *s_screen;
+static lv_obj_t *s_return_screen;
 static lv_obj_t *s_chart;
 static lv_chart_series_t *s_series;
 static lv_obj_t *s_y_max_label;
@@ -285,6 +286,12 @@ static void refresh_chart(void)
 static void back_cb(lv_event_t *e)
 {
     (void)e;
+    if (s_return_screen != NULL) {
+        lv_screen_load(s_return_screen);
+        s_return_screen = NULL;
+        return;
+    }
+
     screen_water_sampling_show();
 }
 
@@ -382,13 +389,14 @@ void screen_water_sample_chart_create(void)
     lv_obj_center(back_lbl);
 }
 
-void screen_water_sample_chart_show(water_sample_metric_t metric)
+void screen_water_sample_chart_show_to(water_sample_metric_t metric, lv_obj_t *return_screen)
 {
     if (s_screen == NULL) {
         screen_water_sample_chart_create();
     }
 
     s_metric = metric;
+    s_return_screen = return_screen;
 
     lv_obj_t *title = lv_obj_get_child(s_screen, 0);
     if (title != NULL) {
@@ -399,4 +407,9 @@ void screen_water_sample_chart_show(water_sample_metric_t metric)
 
     refresh_chart();
     lv_screen_load(s_screen);
+}
+
+void screen_water_sample_chart_show(water_sample_metric_t metric)
+{
+    screen_water_sample_chart_show_to(metric, NULL);
 }

@@ -10,6 +10,7 @@
 #include "net/shelly_client.h"
 #include "net/wifi_manager.h"
 #include "safety/filter_calibration.h"
+#include "safety/heater_override.h"
 #include "safety/maintenance_mode.h"
 #include "schedule/co2_automation.h"
 #include "schedule/co2_schedule.h"
@@ -21,11 +22,28 @@ static const char *TAG = "equip_restore";
 #define RESTORE_WINDOW_US         (15LL * 60LL * 1000000LL)
 #define STEP_DELAY_MS             5000
 #define EARLY_WIFI_DELAY_US       (10LL * 1000000LL)
+#define FILTER_VERIFY_SETTLE_MS   2000
 
 static SemaphoreHandle_t s_wake;
 static int64_t s_retry_until_us;
 static bool s_restore_complete;
 static esp_timer_handle_t s_early_wifi_timer;
+
+static void begin_retry_window(void);
+
+static const char *plug_label(aquapilot_shelly_plug_t plug)
+{
+    switch (plug) {
+    case AQUAPILOT_SHELLY_HEATER:
+        return "heater";
+    case AQUAPILOT_SHELLY_FILTER:
+        return "filter";
+    case AQUAPILOT_SHELLY_CO2:
+        return "co2";
+    default:
+        return "unknown";
+    }
+}
 
 static void notify_status(equipment_status_cb_t status_cb, const char *text)
 {
@@ -55,6 +73,86 @@ static bool co2_desired_state(bool *out_desired)
     return true;
 }
 
+static bool filter_read_watts(uint16_t *watts_out)
+{
+    if (watts_out == NULL) {
+        return false;
+    }
+
+    return shelly_client_get_plug_power_watts(AQUAPILOT_SHELLY_FILTER, watts_out) == ESP_OK;
+}
+
+static bool filter_watts_ok_for_heater(void)
+{
+    if (!aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_FILTER)) {
+        return true;
+    }
+
+    uint16_t watts = 0;
+    if (!filter_read_watts(&watts)) {
+        ESP_LOGW(TAG, "filter watts read failed (heater gate)");
+        return false;
+    }
+
+    if (watts < EQUIP_FILTER_MIN_HEATER_WATTS) {
+        ESP_LOGW(TAG, "filter %u W below heater minimum %u W", (unsigned)watts,
+                 (unsigned)EQUIP_FILTER_MIN_HEATER_WATTS);
+        return false;
+    }
+
+    return true;
+}
+
+static bool filter_verify_power(bool desired_on)
+{
+    if (!aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_FILTER)) {
+        return true;
+    }
+
+    uint16_t watts = 0;
+    if (!filter_read_watts(&watts)) {
+        ESP_LOGW(TAG, "filter watts read failed during verify");
+        return false;
+    }
+
+    if (desired_on) {
+        if (watts < EQUIP_FILTER_MIN_HEATER_WATTS) {
+            ESP_LOGW(TAG, "filter ON verify failed: %u W (need >= %u W)", (unsigned)watts,
+                     (unsigned)EQUIP_FILTER_MIN_HEATER_WATTS);
+            return false;
+        }
+        ESP_LOGI(TAG, "filter ON verified: %u W", (unsigned)watts);
+        return true;
+    }
+
+    if (watts >= EQUIP_FILTER_MIN_HEATER_WATTS) {
+        ESP_LOGW(TAG, "filter OFF verify failed: still %u W", (unsigned)watts);
+        return false;
+    }
+
+    ESP_LOGI(TAG, "filter OFF verified: %u W", (unsigned)watts);
+    return true;
+}
+
+static void filter_settle_delay(bool needed)
+{
+    if (needed) {
+        vTaskDelay(pdMS_TO_TICKS(FILTER_VERIFY_SETTLE_MS));
+    }
+}
+
+static bool filter_force_relay_set(bool on)
+{
+    const esp_err_t err = shelly_client_plug_set(AQUAPILOT_SHELLY_FILTER, on);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "filter relay force %s failed: %s", on ? "ON" : "OFF", esp_err_to_name(err));
+        return false;
+    }
+
+    ESP_LOGI(TAG, "filter relay forced %s", on ? "ON" : "OFF");
+    return true;
+}
+
 bool equipment_set_plug_desired(aquapilot_shelly_plug_t plug, bool desired)
 {
     if (!aquapilot_settings_has_shelly_address(plug)) {
@@ -65,29 +163,64 @@ bool equipment_set_plug_desired(aquapilot_shelly_plug_t plug, bool desired)
         return false;
     }
 
+    const char *label = plug_label(plug);
+    bool relay_matches = false;
+
     shelly_plug_status_t status = {0};
     if (shelly_client_get_plug_status(plug, &status) == ESP_OK && status.output_valid &&
         status.output_on == desired) {
+        relay_matches = true;
+        if (plug != AQUAPILOT_SHELLY_FILTER) {
+            ESP_LOGI(TAG, "plug %s already %s, skipping set", label, desired ? "ON" : "OFF");
+            return true;
+        }
+        ESP_LOGI(TAG, "plug %s already %s, verifying watts", label, desired ? "ON" : "OFF");
+    }
+
+    bool sent_command = false;
+    if (!relay_matches) {
+        const esp_err_t err = shelly_client_plug_set(plug, desired);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "plug %s set %s failed: %s", label, desired ? "ON" : "OFF", esp_err_to_name(err));
+            return false;
+        }
+
+        ESP_LOGI(TAG, "plug %s set %s", label, desired ? "ON" : "OFF");
+        sent_command = true;
+    }
+
+    if (plug != AQUAPILOT_SHELLY_FILTER) {
         return true;
     }
 
-    const esp_err_t err = shelly_client_plug_set(plug, desired);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "plug %d set %s failed: %s", (int)plug, desired ? "ON" : "OFF", esp_err_to_name(err));
+    filter_settle_delay(sent_command);
+    if (filter_verify_power(desired)) {
+        return true;
+    }
+
+    if (!desired) {
         return false;
     }
 
-    ESP_LOGI(TAG, "plug %d set %s", (int)plug, desired ? "ON" : "OFF");
-    return true;
+    ESP_LOGW(TAG, "filter relay/watts mismatch, forcing relay ON");
+    if (!filter_force_relay_set(true)) {
+        return false;
+    }
+
+    filter_settle_delay(true);
+    return filter_verify_power(true);
 }
 
-bool equipment_apply_normal_state(equipment_status_cb_t status_cb, bool use_step_delays)
+bool equipment_apply_normal_state(equipment_status_cb_t status_cb, bool use_step_delays,
+                                  bool allow_during_maintenance)
 {
-    if (maintenance_mode_is_active()) {
+    if (!allow_during_maintenance && maintenance_mode_is_active()) {
+        ESP_LOGW(TAG, "restore skipped: maintenance mode active");
         return false;
     }
 
     if (!aquapilot_wifi_is_connected()) {
+        ESP_LOGW(TAG, "restore skipped: Wi-Fi offline");
         return false;
     }
 
@@ -114,16 +247,34 @@ bool equipment_apply_normal_state(equipment_status_cb_t status_cb, bool use_step
     }
     delay_step(use_step_delays);
 
-    notify_status(status_cb, "Turning on heater plug...");
-    if (!equipment_set_plug_desired(AQUAPILOT_SHELLY_HEATER, true)) {
+    if (!filter_watts_ok_for_heater()) {
+        notify_status(status_cb, "Heater waiting for filter...");
+        ESP_LOGW(TAG, "heater skipped: filter not running (need >= %u W)",
+                 (unsigned)EQUIP_FILTER_MIN_HEATER_WATTS);
         all_ok = false;
+    } else {
+        notify_status(status_cb, "Turning on heater plug...");
+        if (!equipment_set_plug_desired(AQUAPILOT_SHELLY_HEATER, true)) {
+            all_ok = false;
+        } else {
+            heater_override_begin_post_restore_grace();
+        }
     }
 
     if (all_ok) {
         co2_automation_sync_now();
+        ESP_LOGI(TAG, "restore complete");
+    } else {
+        ESP_LOGW(TAG, "restore incomplete: one or more plugs failed");
     }
 
     return all_ok;
+}
+
+void equipment_restore_request_retry(void)
+{
+    ESP_LOGI(TAG, "restore retry requested");
+    begin_retry_window();
 }
 
 static void begin_retry_window(void)
@@ -187,7 +338,7 @@ static void restore_task(void *arg)
         }
 
         ESP_LOGI(TAG, "applying normal equipment state");
-        if (equipment_apply_normal_state(NULL, false)) {
+        if (equipment_apply_normal_state(NULL, false, false)) {
             ESP_LOGI(TAG, "equipment restore complete");
             s_restore_complete = true;
         } else if (now_us > s_retry_until_us) {

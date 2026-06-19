@@ -45,6 +45,7 @@ idf_component_register(
         "safety/filter_power_monitor.c"
         "safety/filter_calibration.c"
         "safety/maintenance_mode.c"
+        "safety/maintenance_console.c"
         "safety/equipment_restore.c"
         "maintenance/maintenance_tracker.c"
         "storage/wifi_creds_nvs.c"

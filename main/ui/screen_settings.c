@@ -22,6 +22,7 @@
 #include "feeder/feeder_client.h"
 #include "schedule/feeder_amount.h"
 #include "schedule/feeder_service.h"
+#include "storage/water_sample_history.h"
 #include "timezone_options.h"
 
 #include <stdint.h>
@@ -1601,6 +1602,65 @@ static void graphing_clear_cb(lv_event_t *e)
     }
 }
 
+static void graphing_view_chart_cb(lv_event_t *e)
+{
+    const water_sample_metric_t metric = (water_sample_metric_t)(intptr_t)lv_event_get_user_data(e);
+    hide_all_keyboards();
+    screen_water_sample_chart_show_to(metric, s_graphing_screen);
+}
+
+static lv_obj_t *create_graphing_section_label(lv_obj_t *parent, const char *text)
+{
+    lv_obj_t *lbl = lv_label_create(parent);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(TITLE_COLOR), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_pad_top(lbl, 8, 0);
+    lv_obj_set_width(lbl, LV_PCT(100));
+    return lbl;
+}
+
+static void create_graphing_metric_buttons(lv_obj_t *parent)
+{
+    enum { METRIC_BTN_H = 48, METRIC_COLS = 3 };
+
+    lv_obj_t *grid = lv_obj_create(parent);
+    lv_obj_remove_style_all(grid);
+    lv_obj_set_width(grid, LV_PCT(100));
+    lv_obj_set_height(grid, LV_SIZE_CONTENT);
+    lv_obj_set_layout(grid, LV_LAYOUT_GRID);
+
+    static lv_coord_t col_dsc[] = {
+        LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST,
+    };
+    static lv_coord_t row_dsc[] = {
+        METRIC_BTN_H, METRIC_BTN_H, LV_GRID_TEMPLATE_LAST,
+    };
+    lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+    lv_obj_set_style_pad_column(grid, 10, 0);
+    lv_obj_set_style_pad_row(grid, 10, 0);
+    lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
+
+    for (int i = 0; i < WATER_METRIC_COUNT; i++) {
+        const water_sample_metric_t metric = (water_sample_metric_t)i;
+        lv_obj_t *btn = lv_button_create(grid);
+        style_menu_button(btn);
+        lv_obj_set_height(btn, METRIC_BTN_H);
+        lv_obj_add_event_cb(btn, graphing_view_chart_cb, LV_EVENT_CLICKED, (void *)(intptr_t)metric);
+        lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, i % METRIC_COLS, 1, LV_GRID_ALIGN_STRETCH, i / METRIC_COLS,
+                             1);
+
+        lv_obj_t *lbl = lv_label_create(btn);
+        lv_label_set_text(lbl, water_sample_metric_label(metric));
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(VALUE_COLOR), 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
+        lv_obj_set_width(lbl, LV_PCT(90));
+        lv_obj_center(lbl);
+    }
+}
+
 static void menu_graphing_cb(lv_event_t *e)
 {
     (void)e;
@@ -1618,13 +1678,17 @@ static void create_graphing_screen(void)
     lv_obj_set_flex_flow(s_graphing_screen, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(s_graphing_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(s_graphing_screen, 8, 0);
-    lv_obj_remove_flag(s_graphing_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_graphing_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(s_graphing_screen, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_graphing_screen, LV_SCROLLBAR_MODE_AUTO);
 
     create_screen_title(s_graphing_screen, "Graphing");
 
     lv_obj_t *form = create_form_panel(s_graphing_screen);
     lv_obj_set_style_pad_all(form, 12, 0);
     lv_obj_set_style_pad_row(form, 8, 0);
+
+    create_graphing_section_label(form, "Temperature");
 
     lv_obj_t *logging_row = lv_obj_create(form);
     lv_obj_remove_style_all(logging_row);
@@ -1651,6 +1715,9 @@ static void create_graphing_screen(void)
     lv_obj_set_width(s_graphing_status, LV_PCT(100));
 
     create_feeder_action_button(form, "Clear Data", graphing_clear_cb);
+
+    create_graphing_section_label(form, "Water parameters");
+    create_graphing_metric_buttons(form);
 
     graphing_refresh_fields();
     create_back_button(s_graphing_screen, sub_back_cb);

@@ -17,8 +17,10 @@ static const char *TAG = "heater_override";
 #define MONITOR_INTERVAL_MS      5000
 #define POLL_PHASE_MS            3400
 #define OFF_RETRY_INTERVAL_MS    30000
+#define POST_RESTORE_GRACE_US    (90LL * 1000000LL)
 
 static volatile bool s_alarm_active;
+static int64_t s_post_restore_grace_until_us;
 static volatile heater_alarm_reason_t s_alarm_reason;
 static int64_t s_last_off_attempt_ms;
 static uint16_t s_cached_shelly_watts;
@@ -98,10 +100,19 @@ static bool evaluate_shelly_power_alarm(void)
     return shelly_mismatch_active();
 }
 
+static bool in_post_restore_grace(void)
+{
+    return s_post_restore_grace_until_us != 0 && esp_timer_get_time() < s_post_restore_grace_until_us;
+}
+
 static bool should_turn_off_shelly(void)
 {
     if (evaluate_temp_alarm()) {
         return true;
+    }
+
+    if (in_post_restore_grace()) {
+        return false;
     }
 
     if (!shelly_mismatch_active()) {
@@ -146,10 +157,11 @@ static void monitor_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(POLL_PHASE_MS));
 
     while (true) {
-        if (maintenance_mode_is_active()) {
+        if (maintenance_mode_is_active() || maintenance_mode_sequence_running()) {
             s_alarm_active = false;
             s_alarm_reason = HEATER_ALARM_NONE;
             s_last_off_attempt_ms = 0;
+            s_post_restore_grace_until_us = 0;
             vTaskDelay(pdMS_TO_TICKS(MONITOR_INTERVAL_MS));
             continue;
         }
@@ -161,7 +173,7 @@ static void monitor_task(void *arg)
 
         if (evaluate_temp_alarm()) {
             reason = HEATER_ALARM_TEMP_HIGH;
-        } else if (evaluate_shelly_power_alarm()) {
+        } else if (!in_post_restore_grace() && evaluate_shelly_power_alarm()) {
             reason = HEATER_ALARM_PLUG_ON;
         }
 
@@ -197,4 +209,11 @@ bool heater_override_alarm_active(void)
 heater_alarm_reason_t heater_override_alarm_reason(void)
 {
     return s_alarm_reason;
+}
+
+void heater_override_begin_post_restore_grace(void)
+{
+    s_post_restore_grace_until_us = esp_timer_get_time() + POST_RESTORE_GRACE_US;
+    s_last_off_attempt_ms = 0;
+    ESP_LOGI(TAG, "post-restore grace started (%lld s)", (long long)(POST_RESTORE_GRACE_US / 1000000LL));
 }

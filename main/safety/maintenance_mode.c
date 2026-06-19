@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "maintenance_console.h"
 #include "net/wifi_manager.h"
 #include "safety/equipment_restore.h"
 #include "storage/aquapilot_settings.h"
@@ -23,6 +24,7 @@ static void set_status(const char *text)
         return;
     }
     snprintf(s_status, sizeof(s_status), "%s", text);
+    ESP_LOGI(TAG, "%s", text);
 }
 
 static void delay_step(void)
@@ -59,10 +61,11 @@ static void run_enable_sequence(void)
     set_status("Maintenance mode active");
 }
 
-static void run_disable_sequence(void)
+static bool run_disable_sequence(void)
 {
-    (void)equipment_apply_normal_state(set_status, true);
-    set_status("Maintenance mode disabled");
+    const bool ok = equipment_apply_normal_state(set_status, true, true);
+    set_status(ok ? "Maintenance mode disabled" : "Restore incomplete — retrying");
+    return ok;
 }
 
 static void sequence_task(void *arg)
@@ -70,13 +73,22 @@ static void sequence_task(void *arg)
     const bool enable = (bool)(uintptr_t)arg;
 
     s_running = true;
+    ESP_LOGI(TAG, "sequence start enable=%d", enable ? 1 : 0);
+
     if (enable) {
         s_active = true;
         run_enable_sequence();
+        ESP_LOGI(TAG, "sequence complete enable=1");
     } else {
-        run_disable_sequence();
+        const bool ok = run_disable_sequence();
         s_active = false;
+        if (!ok) {
+            ESP_LOGW(TAG, "exit restore incomplete, requesting background retry");
+            equipment_restore_request_retry();
+        }
+        ESP_LOGI(TAG, "sequence complete enable=0 ok=%d", ok ? 1 : 0);
     }
+
     s_running = false;
     vTaskDelete(NULL);
 }
@@ -89,6 +101,7 @@ esp_err_t maintenance_mode_init(void)
     }
     s_active = enabled;
     snprintf(s_status, sizeof(s_status), "%s", enabled ? "Maintenance mode active" : "Idle");
+    maintenance_console_register();
     return ESP_OK;
 }
 
@@ -110,6 +123,7 @@ const char *maintenance_mode_status_text(void)
 esp_err_t maintenance_mode_apply(bool enabled)
 {
     if (s_running) {
+        ESP_LOGW(TAG, "apply rejected: sequence already running");
         return ESP_ERR_INVALID_STATE;
     }
 

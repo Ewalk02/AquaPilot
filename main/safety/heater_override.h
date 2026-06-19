@@ -19,3 +19,6 @@ bool heater_override_alarm_active(void);
 
 /** Which heater alarm is active, if any. */
 heater_alarm_reason_t heater_override_alarm_reason(void);
+
+/** Suppress Shelly power-mismatch shutoff briefly after equipment restore turns heater on. */
+void heater_override_begin_post_restore_grace(void);

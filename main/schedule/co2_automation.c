@@ -18,7 +18,8 @@ static int8_t s_last_desired = -1;
 
 static void sync_co2_plug(void)
 {
-    if (filter_calibration_is_active() || maintenance_mode_is_active()) {
+    if (filter_calibration_is_active() || maintenance_mode_is_active() ||
+        maintenance_mode_sequence_running()) {
         return;
     }
 
