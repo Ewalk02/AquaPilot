@@ -108,3 +108,26 @@ bool aquapilot_settings_set_maint_custom(int slot, const aquapilot_maint_custom_
 bool aquapilot_settings_update_maint_custom(int slot, const aquapilot_maint_custom_t *item);
 int aquapilot_settings_find_free_maint_custom_slot(void);
 bool aquapilot_settings_commit(void);
+
+#define AQUAPILOT_THINGSPEAK_KEY_MAX     16
+#define AQUAPILOT_THINGSPEAK_CHANNEL_MAX 12
+#define AQUAPILOT_THINGSPEAK_FIELD_COUNT 8
+
+typedef enum {
+    AQUAPILOT_TS_METRIC_NONE = 0,
+    AQUAPILOT_TS_METRIC_TEMP_F,
+    AQUAPILOT_TS_METRIC_FILTER_W,
+    AQUAPILOT_TS_METRIC_CO2_W,
+    AQUAPILOT_TS_METRIC_FEED_STATUS,
+} aquapilot_ts_metric_t;
+
+bool aquapilot_settings_get_thingspeak_enabled(bool *enabled);
+bool aquapilot_settings_set_thingspeak_enabled(bool enabled);
+bool aquapilot_settings_get_thingspeak_api_key(char *buf, size_t buf_len);
+bool aquapilot_settings_set_thingspeak_api_key(const char *key);
+bool aquapilot_settings_get_thingspeak_channel_id(char *buf, size_t buf_len);
+bool aquapilot_settings_set_thingspeak_channel_id(const char *channel_id);
+bool aquapilot_settings_get_thingspeak_field(uint8_t field_idx, aquapilot_ts_metric_t *metric,
+                                             uint16_t *interval_min);
+bool aquapilot_settings_set_thingspeak_field(uint8_t field_idx, aquapilot_ts_metric_t metric,
+                                             uint16_t interval_min);

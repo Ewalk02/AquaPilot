@@ -25,6 +25,7 @@
 #include "storage/sd_storage.h"
 #include "storage/temp_history.h"
 #include "storage/water_sample_history.h"
+#include "net/thingspeak_uploader.h"
 
 static const char *TAG = "aquapilot";
 
@@ -163,6 +164,11 @@ void app_main(void)
     esp_err_t restore_err = equipment_restore_init();
     if (restore_err != ESP_OK) {
         ESP_LOGW(TAG, "equipment restore init failed");
+    }
+
+    esp_err_t thingspeak_err = thingspeak_uploader_init();
+    if (thingspeak_err != ESP_OK) {
+        ESP_LOGW(TAG, "ThingSpeak uploader init failed");
     }
 
     if (heater_err != ESP_OK) {

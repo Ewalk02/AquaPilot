@@ -8,6 +8,7 @@ idf_component_register(
         "ui/screen_maintenance_track.c"
         "ui/screen_water_sampling.c"
         "ui/screen_water_sample_chart.c"
+        "ui/screen_thingspeak.c"
         "ui/timezone_options.c"
         "ui/ui_nav.c"
         "ui/ui_buttons.c"
@@ -37,6 +38,7 @@ idf_component_register(
         "net/wifi_manager.c"
         "net/lan_http.c"
         "net/shelly_client.c"
+        "net/thingspeak_uploader.c"
         "safety/heater_override.c"
         "safety/co2_power_monitor.c"
         "feeder/feeder_client.c"
@@ -88,4 +90,5 @@ idf_component_register(
         chihiros_heater_protocol
         driver
         fatfs
+        mbedtls
 )

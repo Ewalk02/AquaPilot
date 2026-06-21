@@ -34,6 +34,8 @@ static char s_status[96] = "Disabled";
 static int s_slot_yday = -1;
 static bool s_slot_done[FEEDER_MAX_SLOTS];
 static time_t s_miss_watch_epoch = 0;
+static bool s_last_feed_valid;
+static bool s_last_feed_success;
 
 static int minutes_of_day(uint8_t hour, uint8_t minute)
 {
@@ -249,6 +251,18 @@ static void set_status(const char *text)
     snprintf(s_status, sizeof(s_status), "%s", text);
 }
 
+static void record_feed_success(void)
+{
+    s_last_feed_valid = true;
+    s_last_feed_success = true;
+}
+
+static void record_feed_failure(void)
+{
+    s_last_feed_valid = true;
+    s_last_feed_success = false;
+}
+
 static void mark_feed_complete_display(void)
 {
     s_complete_until_us = esp_timer_get_time() + (int64_t)FEED_COMPLETE_DISPLAY_S * 1000000LL;
@@ -320,6 +334,7 @@ static void wait_for_feed_complete(uint16_t amount_tenths)
             set_status(progress);
             if (!status.feeding) {
                 set_status("Feed complete");
+                record_feed_success();
                 mark_feed_complete_display();
                 return;
             }
@@ -336,6 +351,7 @@ static void run_feed(uint16_t amount_tenths, const char *reason)
     if (aquapilot_settings_has_feeder_host()) {
         if (feeder_client_feed(amount_tenths) != ESP_OK) {
             set_status("Feeder unreachable");
+            record_feed_failure();
             end_feed();
             ESP_LOGW(TAG, "feeder feed command failed");
             return;
@@ -344,6 +360,7 @@ static void run_feed(uint16_t amount_tenths, const char *reason)
         wait_for_feed_complete(amount_tenths);
         if (strncmp(s_status, "Feeding", 7) == 0) {
             set_status("Feed complete");
+            record_feed_success();
             mark_feed_complete_display();
         }
     } else {
@@ -351,6 +368,7 @@ static void run_feed(uint16_t amount_tenths, const char *reason)
                  (double)feeder_amount_tenths_to_seconds(amount_tenths));
         vTaskDelay(pdMS_TO_TICKS(feeder_amount_tenths_to_ms(amount_tenths)));
         set_status("Feed complete (no feeder host)");
+        record_feed_success();
         mark_feed_complete_display();
     }
 
@@ -375,6 +393,7 @@ static esp_err_t start_feed_async(uint16_t amount_tenths)
         end_feed();
         ESP_LOGE(TAG, "failed to start feed task");
         set_status("Feed failed to start");
+        record_feed_failure();
         return ESP_FAIL;
     }
 
@@ -408,6 +427,7 @@ void feeder_service_on_feed_complete(uint16_t amount_tenths, uint32_t steps)
     char buf[96];
     snprintf(buf, sizeof(buf), "Feed complete (%u steps)", (unsigned)steps);
     set_status(buf);
+    record_feed_success();
     mark_feed_complete_display();
     mark_slot_complete_from_callback();
     if (s_feed_events != NULL) {
@@ -487,11 +507,23 @@ bool feeder_service_is_feed_missed(void)
             continue;
         }
         if (!s_slot_done[slot]) {
+            record_feed_failure();
             return true;
         }
     }
 
     return false;
+}
+
+bool feeder_service_get_last_feed_outcome(bool *success, bool *valid)
+{
+    if (success == NULL || valid == NULL) {
+        return false;
+    }
+    (void)feeder_service_is_feed_missed();
+    *valid = s_last_feed_valid;
+    *success = s_last_feed_success;
+    return true;
 }
 
 bool feeder_service_is_enabled(void)

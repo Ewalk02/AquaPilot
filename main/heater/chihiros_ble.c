@@ -18,7 +18,7 @@
 static const char *TAG = "chihiros_ble";
 
 #undef CHIHIROS_STATUS_STALE_MS
-#define CHIHIROS_STATUS_STALE_MS (6 * 60 * 1000)
+#define CHIHIROS_STATUS_STALE_MS (10 * 60 * 1000)
 
 #define HEATER_SAMPLES_PER_SESSION 5
 #define HEATER_SESSION_TIMEOUT_US  (90 * 1000 * 1000ULL)

@@ -2,7 +2,7 @@
 
 #include "ble/ble_central_manager.h"
 #include "esp_timer.h"
-#include "heater/chihiros_ble.h"
+#include "heater/heater_service.h"
 #include "net/wifi_manager.h"
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
@@ -38,14 +38,7 @@ static void mark_connected(ble_conn_led_state_t *st)
 
 static bool heater_connection_led(void)
 {
-    chihiros_status_t st = {0};
-    if (!chihiros_ble_get_status(&st)) {
-        return within_display_grace(s_heater_last_success_ms, HEATER_DISPLAY_GRACE_MS) || s_heater_led.led_on;
-    }
-
-    const bool fresh_status = st.status_valid && !st.stale;
-
-    if (st.connected || fresh_status) {
+    if (heater_service_is_heater_online()) {
         s_heater_last_success_ms = conn_now_ms();
         mark_connected(&s_heater_led);
         return true;

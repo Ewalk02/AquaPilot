@@ -8,6 +8,7 @@
 #include "screen_maintenance_track.h"
 #include "screen_water_sampling.h"
 #include "screen_water_sample_chart.h"
+#include "screen_thingspeak.h"
 #include "storage/aquapilot_settings.h"
 #include "ui_buttons.h"
 #include "ui_nav.h"
@@ -1423,6 +1424,13 @@ static void menu_tank_maintenance_cb(lv_event_t *e)
     screen_maintenance_track_show();
 }
 
+static void menu_thingspeak_cb(lv_event_t *e)
+{
+    ui_button_clear_pressed(lv_event_get_target(e));
+    hide_all_keyboards();
+    screen_thingspeak_show();
+}
+
 static void feeder_stop_ui_timer(void)
 {
     if (s_feeder_ui_timer != NULL) {
@@ -1833,6 +1841,7 @@ static void create_hub_screen(void)
     create_menu_button_grid(menu, "Display", menu_display_cb, 1, 4);
     create_menu_button_grid(menu, "Graphing", menu_graphing_cb, 0, 5);
     create_menu_button_grid(menu, "Tank Maintenance", menu_tank_maintenance_cb, 1, 5);
+    create_menu_button_grid(menu, "ThingSpeak", menu_thingspeak_cb, 0, 6);
 
     create_back_button(s_hub_screen, hub_back_cb);
 }
@@ -2377,7 +2386,7 @@ static void create_safety_screen(void)
     lv_obj_t *desc = lv_label_create(form);
     lv_label_set_text(desc,
                       "When enabled, turns off the heater Shelly plug if tank temperature is above the "
-                      "alert range and the heater is drawing more than 5 W, or if the Chihiros heater is "
+                      "alert range and the heater is drawing more than 10 W, or if the Chihiros heater is "
                       "off but the Shelly plug is still drawing power.");
     lv_obj_set_style_text_color(desc, lv_color_hex(STATUS_COLOR), 0);
     lv_obj_set_style_text_font(desc, &lv_font_montserrat_16, 0);
@@ -2408,7 +2417,7 @@ static void create_safety_screen(void)
     lv_obj_t *heater_shelly_desc = lv_label_create(form);
     lv_label_set_text(heater_shelly_desc,
                       "When enabled, alerts and turns off the heater Shelly plug if the Chihiros heater "
-                      "has shut down but the plug is still drawing more than 5 W.");
+                      "has shut down but the plug is still drawing more than 10 W.");
     lv_obj_set_style_text_color(heater_shelly_desc, lv_color_hex(STATUS_COLOR), 0);
     lv_obj_set_style_text_font(heater_shelly_desc, &lv_font_montserrat_16, 0);
     lv_obj_set_width(heater_shelly_desc, LV_PCT(100));
@@ -2795,6 +2804,7 @@ void screen_settings_create(void)
     screen_maintenance_track_create();
     screen_water_sampling_create();
     screen_water_sample_chart_create();
+    screen_thingspeak_create();
     ui_nav_set_settings_screen(s_hub_screen);
 }
 

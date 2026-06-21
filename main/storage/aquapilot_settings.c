@@ -33,6 +33,10 @@ static const char *LEGACY_TEMP_KEY = "temp_range_v1";
 #define SETTINGS_MAGIC_V19 0x41515043u /* AQP19 */
 #define SETTINGS_MAGIC_V20 0x41515044u /* AQP20 */
 #define SETTINGS_MAGIC_V21 0x41515045u /* AQP21 */
+#define SETTINGS_MAGIC_V22 0x41515046u /* AQP22 */
+
+#define DEFAULT_THINGSPEAK_CHANNEL_ID "3413161"
+#define DEFAULT_THINGSPEAK_INTERVAL_MIN 30
 #define AQUAPILOT_MAINT_ACTIVITY_COUNT 5
 
 #define DEFAULT_MAINT_INTERVAL_WATER_CHANGE_D  21
@@ -654,6 +658,56 @@ typedef struct __attribute__((packed)) {
     int32_t maint_next_due_epoch[AQUAPILOT_MAINT_ACTIVITY_COUNT];
     uint8_t maint_interval_days[AQUAPILOT_MAINT_ACTIVITY_COUNT];
     aquapilot_maint_custom_t maint_custom[AQUAPILOT_MAINT_CUSTOM_MAX];
+} settings_blob_v21_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t co2_on_h;
+    uint8_t co2_on_m;
+    uint8_t co2_off_h;
+    uint8_t co2_off_m;
+    uint8_t filter_calibrated;
+    uint8_t heater_setpoint_valid;
+    float heater_setpoint_f;
+    float temp_delta_plus_f;
+    float temp_delta_minus_f;
+    char shelly_heater[SHELLY_ADDR_LEN];
+    char shelly_filter[SHELLY_ADDR_LEN];
+    char shelly_co2[SHELLY_ADDR_LEN];
+    uint8_t heater_override_enabled;
+    uint8_t wifi_time_enabled;
+    uint8_t manual_time_valid;
+    uint8_t reserved;
+    int64_t manual_epoch;
+    char timezone[AQUAPILOT_TIMEZONE_MAX];
+    uint8_t co2_power_monitor_enabled;
+    uint8_t heater_shelly_power_monitor_enabled;
+    float filter_baseline_watts;
+    uint8_t filter_band_green_pct;
+    uint8_t filter_band_yellow_pct;
+    uint8_t filter_band_red_pct;
+    uint8_t filter_band_red_cutoff_pct;
+    uint8_t maintenance_mode_enabled;
+    uint8_t feeder_enabled;
+    uint8_t feeder_start_h;
+    uint8_t feeder_start_m;
+    uint8_t feeder_end_h;
+    uint8_t feeder_end_m;
+    uint8_t feeder_times_per_day;
+    uint16_t feeder_amount_tenths;
+    char feeder_host[SHELLY_ADDR_LEN];
+    uint8_t display_flip_180;
+    uint8_t display_brightness_pct;
+    uint8_t temp_graph_logging_enabled;
+    char shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX + 1];
+    int32_t maint_next_due_epoch[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    uint8_t maint_interval_days[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    aquapilot_maint_custom_t maint_custom[AQUAPILOT_MAINT_CUSTOM_MAX];
+    uint8_t thingspeak_enabled;
+    char thingspeak_api_key[AQUAPILOT_THINGSPEAK_KEY_MAX + 1];
+    char thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX + 1];
+    uint8_t thingspeak_field_metric[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    uint16_t thingspeak_field_interval_min[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
 } settings_blob_t;
 
 typedef struct __attribute__((packed)) {
@@ -665,10 +719,12 @@ typedef struct __attribute__((packed)) {
 
 static settings_blob_t s_settings;
 
+static void apply_default_thingspeak_settings(settings_blob_t *s);
+
 static void settings_defaults(settings_blob_t *s)
 {
     memset(s, 0, sizeof(*s));
-    s->magic = SETTINGS_MAGIC_V21;
+    s->magic = SETTINGS_MAGIC_V22;
     s->co2_on_h = DEFAULT_CO2_ON_H;
     s->co2_on_m = DEFAULT_CO2_ON_M;
     s->co2_off_h = DEFAULT_CO2_OFF_H;
@@ -714,6 +770,31 @@ static void settings_defaults(settings_blob_t *s)
     s->maint_interval_days[2] = DEFAULT_MAINT_INTERVAL_FILTER_CLEAN_D;
     s->maint_interval_days[3] = DEFAULT_MAINT_INTERVAL_CHECK_CO2_D;
     s->maint_interval_days[4] = DEFAULT_MAINT_INTERVAL_FILL_FEEDER_D;
+    apply_default_thingspeak_settings(s);
+}
+
+static void apply_default_thingspeak_settings(settings_blob_t *s)
+{
+    if (s == NULL) {
+        return;
+    }
+    s->thingspeak_enabled = 0;
+    s->thingspeak_api_key[0] = '\0';
+    strncpy(s->thingspeak_channel_id, DEFAULT_THINGSPEAK_CHANNEL_ID, AQUAPILOT_THINGSPEAK_CHANNEL_MAX);
+    s->thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX] = '\0';
+    s->thingspeak_field_metric[0] = AQUAPILOT_TS_METRIC_TEMP_F;
+    s->thingspeak_field_metric[1] = AQUAPILOT_TS_METRIC_FILTER_W;
+    s->thingspeak_field_metric[2] = AQUAPILOT_TS_METRIC_CO2_W;
+    s->thingspeak_field_metric[3] = AQUAPILOT_TS_METRIC_FEED_STATUS;
+    for (int i = 4; i < AQUAPILOT_THINGSPEAK_FIELD_COUNT; i++) {
+        s->thingspeak_field_metric[i] = AQUAPILOT_TS_METRIC_NONE;
+    }
+    for (int i = 0; i < 4; i++) {
+        s->thingspeak_field_interval_min[i] = DEFAULT_THINGSPEAK_INTERVAL_MIN;
+    }
+    for (int i = 4; i < AQUAPILOT_THINGSPEAK_FIELD_COUNT; i++) {
+        s->thingspeak_field_interval_min[i] = 0;
+    }
 }
 
 static void apply_default_maint_intervals(uint8_t *intervals, size_t count)
@@ -1120,11 +1201,29 @@ static void finalize_settings_v21(void)
     s_settings.magic = SETTINGS_MAGIC_V21;
 }
 
+static void finalize_settings_v22(void)
+{
+    finalize_settings_v21();
+    apply_default_thingspeak_settings(&s_settings);
+    s_settings.magic = SETTINGS_MAGIC_V22;
+}
+
+static void upgrade_v21_blob(const settings_blob_v21_t *loaded)
+{
+    memset(&s_settings, 0, sizeof(s_settings));
+    memcpy(&s_settings, loaded, sizeof(settings_blob_v21_t));
+    apply_default_thingspeak_settings(&s_settings);
+    s_settings.magic = SETTINGS_MAGIC_V22;
+    ensure_shelly_strings_null_terminated();
+    save_settings();
+    ESP_LOGI(TAG, "upgraded settings v21 → v22");
+}
+
 static void upgrade_v20_blob(const settings_blob_v20_t *loaded)
 {
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v20_t));
-    finalize_settings_v21();
+    finalize_settings_v22();
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v20 → v21");
@@ -1134,7 +1233,7 @@ static void upgrade_v19_blob(const settings_blob_v19_t *loaded)
 {
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v19_t));
-    finalize_settings_v21();
+    finalize_settings_v22();
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v19 → v21");
@@ -1145,7 +1244,7 @@ static void upgrade_v18_blob(const settings_blob_v18_t *loaded)
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v18_t));
     memset(s_settings.maint_next_due_epoch, 0, sizeof(s_settings.maint_next_due_epoch));
-    finalize_settings_v21();
+    finalize_settings_v22();
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v18 → v21");
@@ -1308,15 +1407,25 @@ void aquapilot_settings_init(void)
     settings_blob_t loaded = {0};
     size_t size = sizeof(loaded);
     esp_err_t err = aquapilot_nvs_get_blob(NVS_KEY, &loaded, &size);
-    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V21) {
+    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V22) {
         s_settings = loaded;
         ensure_shelly_strings_null_terminated();
         s_settings.shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX] = '\0';
+        s_settings.thingspeak_api_key[AQUAPILOT_THINGSPEAK_KEY_MAX] = '\0';
+        s_settings.thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX] = '\0';
         float min_f = 0.0f;
         float max_f = 0.0f;
         compute_temp_range(&min_f, &max_f);
-        ESP_LOGI(TAG, "loaded settings v21 (setpoint %.1f F, range %.1f–%.1f F, tz %s)", effective_setpoint_f(), min_f,
+        ESP_LOGI(TAG, "loaded settings v22 (setpoint %.1f F, range %.1f–%.1f F, tz %s)", effective_setpoint_f(), min_f,
                  max_f, s_settings.timezone);
+        return;
+    }
+
+    settings_blob_v21_t loaded_v21 = {0};
+    size_t v21_size = sizeof(loaded_v21);
+    esp_err_t v21_err = aquapilot_nvs_get_blob(NVS_KEY, &loaded_v21, &v21_size);
+    if (v21_err == ESP_OK && v21_size == sizeof(loaded_v21) && loaded_v21.magic == SETTINGS_MAGIC_V21) {
+        upgrade_v21_blob(&loaded_v21);
         return;
     }
 
@@ -1348,7 +1457,7 @@ void aquapilot_settings_init(void)
     if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V17) {
         s_settings = loaded;
         memset(s_settings.maint_next_due_epoch, 0, sizeof(s_settings.maint_next_due_epoch));
-        finalize_settings_v21();
+        finalize_settings_v22();
         ensure_shelly_strings_null_terminated();
         s_settings.shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX] = '\0';
         save_settings();
@@ -2135,5 +2244,118 @@ int aquapilot_settings_find_free_maint_custom_slot(void)
 
 bool aquapilot_settings_commit(void)
 {
+    return save_settings();
+}
+
+static bool thingspeak_interval_valid(uint16_t interval_min)
+{
+    return interval_min == 0 || interval_min == 5 || interval_min == 15 || interval_min == 30 || interval_min == 60 ||
+           interval_min == 120;
+}
+
+static bool thingspeak_metric_valid(aquapilot_ts_metric_t metric)
+{
+    return metric <= AQUAPILOT_TS_METRIC_FEED_STATUS;
+}
+
+static bool thingspeak_api_key_valid(const char *key)
+{
+    if (key == NULL || key[0] == '\0') {
+        return true;
+    }
+    size_t len = strlen(key);
+    if (len != AQUAPILOT_THINGSPEAK_KEY_MAX) {
+        return false;
+    }
+    for (size_t i = 0; i < len; i++) {
+        char c = key[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool aquapilot_settings_get_thingspeak_enabled(bool *enabled)
+{
+    if (enabled == NULL) {
+        return false;
+    }
+    *enabled = s_settings.thingspeak_enabled != 0;
+    return true;
+}
+
+bool aquapilot_settings_set_thingspeak_enabled(bool enabled)
+{
+    s_settings.thingspeak_enabled = enabled ? 1 : 0;
+    ESP_LOGI(TAG, "ThingSpeak upload %s", enabled ? "enabled" : "disabled");
+    return save_settings();
+}
+
+bool aquapilot_settings_get_thingspeak_api_key(char *buf, size_t buf_len)
+{
+    if (buf == NULL || buf_len == 0) {
+        return false;
+    }
+    strncpy(buf, s_settings.thingspeak_api_key, buf_len - 1);
+    buf[buf_len - 1] = '\0';
+    return true;
+}
+
+bool aquapilot_settings_set_thingspeak_api_key(const char *key)
+{
+    const char *src = key != NULL ? key : "";
+    if (!thingspeak_api_key_valid(src)) {
+        return false;
+    }
+    strncpy(s_settings.thingspeak_api_key, src, AQUAPILOT_THINGSPEAK_KEY_MAX);
+    s_settings.thingspeak_api_key[AQUAPILOT_THINGSPEAK_KEY_MAX] = '\0';
+    ESP_LOGI(TAG, "ThingSpeak API key %s", s_settings.thingspeak_api_key[0] != '\0' ? "configured" : "cleared");
+    return save_settings();
+}
+
+bool aquapilot_settings_get_thingspeak_channel_id(char *buf, size_t buf_len)
+{
+    if (buf == NULL || buf_len == 0) {
+        return false;
+    }
+    strncpy(buf, s_settings.thingspeak_channel_id, buf_len - 1);
+    buf[buf_len - 1] = '\0';
+    return true;
+}
+
+bool aquapilot_settings_set_thingspeak_channel_id(const char *channel_id)
+{
+    const char *src = channel_id != NULL ? channel_id : "";
+    if (src[0] == '\0') {
+        return false;
+    }
+    strncpy(s_settings.thingspeak_channel_id, src, AQUAPILOT_THINGSPEAK_CHANNEL_MAX);
+    s_settings.thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX] = '\0';
+    return save_settings();
+}
+
+bool aquapilot_settings_get_thingspeak_field(uint8_t field_idx, aquapilot_ts_metric_t *metric, uint16_t *interval_min)
+{
+    if (field_idx >= AQUAPILOT_THINGSPEAK_FIELD_COUNT) {
+        return false;
+    }
+    if (metric != NULL) {
+        *metric = (aquapilot_ts_metric_t)s_settings.thingspeak_field_metric[field_idx];
+    }
+    if (interval_min != NULL) {
+        *interval_min = s_settings.thingspeak_field_interval_min[field_idx];
+    }
+    return true;
+}
+
+bool aquapilot_settings_set_thingspeak_field(uint8_t field_idx, aquapilot_ts_metric_t metric, uint16_t interval_min)
+{
+    if (field_idx >= AQUAPILOT_THINGSPEAK_FIELD_COUNT || !thingspeak_metric_valid(metric) ||
+        !thingspeak_interval_valid(interval_min)) {
+        return false;
+    }
+    s_settings.thingspeak_field_metric[field_idx] = (uint8_t)metric;
+    s_settings.thingspeak_field_interval_min[field_idx] = interval_min;
     return save_settings();
 }

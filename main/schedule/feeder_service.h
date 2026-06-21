@@ -28,3 +28,6 @@ bool feeder_service_show_feed_complete(void);
 
 /** True when a scheduled slot passed without a feeder completion callback. */
 bool feeder_service_is_feed_missed(void);
+
+/** Last feed outcome for telemetry: success=1, failure=0. valid=false before any feed event. */
+bool feeder_service_get_last_feed_outcome(bool *success, bool *valid);

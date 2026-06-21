@@ -22,6 +22,7 @@ static const char *TAG = "heater_override";
 static volatile bool s_alarm_active;
 static int64_t s_post_restore_grace_until_us;
 static volatile heater_alarm_reason_t s_alarm_reason;
+static volatile heater_alarm_reason_t s_latched_reason;
 static int64_t s_last_off_attempt_ms;
 static uint16_t s_cached_shelly_watts;
 static bool s_cached_shelly_valid;
@@ -105,6 +106,45 @@ static bool in_post_restore_grace(void)
     return s_post_restore_grace_until_us != 0 && esp_timer_get_time() < s_post_restore_grace_until_us;
 }
 
+static bool heater_plug_relay_on(void)
+{
+    if (!aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_HEATER)) {
+        return true;
+    }
+
+    if (!aquapilot_wifi_is_connected()) {
+        return false;
+    }
+
+    bool on = false;
+    if (shelly_client_get_plug_switch_on(AQUAPILOT_SHELLY_HEATER, &on) != ESP_OK) {
+        return false;
+    }
+
+    return on;
+}
+
+static bool heater_restored_to_normal(void)
+{
+    if (!heater_plug_relay_on()) {
+        return false;
+    }
+
+    if (evaluate_temp_alarm()) {
+        return false;
+    }
+
+    if (heater_service_is_heater_off()) {
+        s_cached_shelly_valid = false;
+        (void)refresh_heater_shelly_watts();
+        if (shelly_mismatch_active()) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool should_turn_off_shelly(void)
 {
     if (evaluate_temp_alarm()) {
@@ -160,6 +200,7 @@ static void monitor_task(void *arg)
         if (maintenance_mode_is_active() || maintenance_mode_sequence_running()) {
             s_alarm_active = false;
             s_alarm_reason = HEATER_ALARM_NONE;
+            s_latched_reason = HEATER_ALARM_NONE;
             s_last_off_attempt_ms = 0;
             s_post_restore_grace_until_us = 0;
             vTaskDelay(pdMS_TO_TICKS(MONITOR_INTERVAL_MS));
@@ -169,20 +210,32 @@ static void monitor_task(void *arg)
         s_cached_shelly_valid = false;
         (void)refresh_heater_shelly_watts();
 
-        heater_alarm_reason_t reason = HEATER_ALARM_NONE;
+        heater_alarm_reason_t instant_reason = HEATER_ALARM_NONE;
 
         if (evaluate_temp_alarm()) {
-            reason = HEATER_ALARM_TEMP_HIGH;
+            instant_reason = HEATER_ALARM_TEMP_HIGH;
         } else if (!in_post_restore_grace() && evaluate_shelly_power_alarm()) {
-            reason = HEATER_ALARM_PLUG_ON;
+            instant_reason = HEATER_ALARM_PLUG_ON;
         }
 
-        s_alarm_reason = reason;
-        s_alarm_active = reason != HEATER_ALARM_NONE;
+        if (instant_reason != HEATER_ALARM_NONE && s_latched_reason == HEATER_ALARM_NONE) {
+            s_latched_reason = instant_reason;
+            ESP_LOGW(TAG, "latched heater alarm (reason=%d)", (int)instant_reason);
+        }
+
+        if (s_latched_reason != HEATER_ALARM_NONE && heater_restored_to_normal()) {
+            ESP_LOGI(TAG, "heater restored to normal, clearing latched alarm");
+            s_latched_reason = HEATER_ALARM_NONE;
+        }
+
+        const heater_alarm_reason_t display_reason =
+            s_latched_reason != HEATER_ALARM_NONE ? s_latched_reason : instant_reason;
+        s_alarm_reason = display_reason;
+        s_alarm_active = display_reason != HEATER_ALARM_NONE;
 
         if (should_turn_off_shelly()) {
             maybe_turn_off_heater_plug();
-        } else {
+        } else if (instant_reason == HEATER_ALARM_NONE) {
             s_last_off_attempt_ms = 0;
         }
 
@@ -209,6 +262,11 @@ bool heater_override_alarm_active(void)
 heater_alarm_reason_t heater_override_alarm_reason(void)
 {
     return s_alarm_reason;
+}
+
+bool heater_override_alarm_is_latched(void)
+{
+    return s_latched_reason != HEATER_ALARM_NONE;
 }
 
 void heater_override_begin_post_restore_grace(void)

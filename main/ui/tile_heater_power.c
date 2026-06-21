@@ -120,7 +120,13 @@ void tile_heater_power_update(tile_heater_power_t *tile)
 
     if (alarm) {
         const char *message = "Temp High but\nHeater On";
-        if (heater_override_alarm_reason() == HEATER_ALARM_PLUG_ON) {
+        if (heater_override_alarm_is_latched()) {
+            if (heater_override_alarm_reason() == HEATER_ALARM_PLUG_ON) {
+                message = "Heater safety\nshutoff active";
+            } else {
+                message = "Temp safety\nshutoff active";
+            }
+        } else if (heater_override_alarm_reason() == HEATER_ALARM_PLUG_ON) {
             message = "Heater off but\nplug on power";
         }
         tile_show_alarm_message(tile->value_label, message, TILE_ALARM_TEXT);
