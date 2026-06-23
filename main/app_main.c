@@ -6,6 +6,7 @@
 #include "net/wifi_manager.h"
 #include "storage/aquapilot_nvs.h"
 #include "storage/aquapilot_settings.h"
+#include "schedule/air_schedule.h"
 #include "schedule/co2_schedule.h"
 #include "schedule/co2_automation.h"
 #include "schedule/feeder_service.h"
@@ -13,6 +14,7 @@
 #include "heater/heater_service.h"
 #include "maintenance/maintenance_tracker.h"
 #include "safety/heater_override.h"
+#include "safety/air_power_monitor.h"
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
 #include "feeder/feeder_client.h"
@@ -77,6 +79,7 @@ static void platform_init(void)
 
     aquapilot_time_init();
     co2_schedule_init();
+    air_schedule_init();
 
     if (!aquapilot_wifi_init()) {
         ESP_LOGW(TAG, "Wi-Fi stack init failed (UI will still run)");
@@ -154,6 +157,11 @@ void app_main(void)
     esp_err_t filter_power_err = filter_power_monitor_init();
     if (filter_power_err != ESP_OK) {
         ESP_LOGW(TAG, "filter power monitor init failed");
+    }
+
+    esp_err_t air_power_err = air_power_monitor_init();
+    if (air_power_err != ESP_OK) {
+        ESP_LOGW(TAG, "air power monitor init failed");
     }
 
     esp_err_t filter_cal_err = filter_calibration_init();

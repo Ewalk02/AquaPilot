@@ -15,6 +15,7 @@ typedef enum {
     AQUAPILOT_SHELLY_HEATER = 0,
     AQUAPILOT_SHELLY_FILTER,
     AQUAPILOT_SHELLY_CO2,
+    AQUAPILOT_SHELLY_AIR,
 } aquapilot_shelly_plug_t;
 
 bool aquapilot_settings_get_temp_range(float *min_f, float *max_f);
@@ -25,6 +26,17 @@ bool aquapilot_settings_set_temp_deltas(float delta_plus_f, float delta_minus_f)
 
 bool aquapilot_settings_get_co2_schedule(uint8_t *on_h, uint8_t *on_m, uint8_t *off_h, uint8_t *off_m);
 bool aquapilot_settings_set_co2_schedule(uint8_t on_h, uint8_t on_m, uint8_t off_h, uint8_t off_m);
+
+bool aquapilot_settings_get_co2_injection_enabled(bool *enabled);
+bool aquapilot_settings_set_co2_injection_enabled(bool enabled);
+
+bool aquapilot_settings_get_co2_air_simultaneous(bool *enabled);
+bool aquapilot_settings_set_co2_air_simultaneous(bool enabled);
+
+bool aquapilot_settings_get_air_pump_enabled(bool *enabled);
+bool aquapilot_settings_set_air_pump_enabled(bool enabled);
+bool aquapilot_settings_get_air_schedule(uint8_t *on_h, uint8_t *on_m, uint8_t *off_h, uint8_t *off_m);
+bool aquapilot_settings_set_air_schedule(uint8_t on_h, uint8_t on_m, uint8_t off_h, uint8_t off_m);
 
 bool aquapilot_settings_get_filter_calibrated(bool *calibrated);
 bool aquapilot_settings_set_filter_calibrated(bool calibrated);
@@ -42,7 +54,8 @@ bool aquapilot_settings_set_heater_setpoint(float setpoint_f);
 bool aquapilot_settings_get_shelly_address(aquapilot_shelly_plug_t plug, char *buf, size_t buf_len);
 bool aquapilot_settings_has_shelly_address(aquapilot_shelly_plug_t plug);
 bool aquapilot_settings_set_shelly_address(aquapilot_shelly_plug_t plug, const char *address);
-bool aquapilot_settings_set_shelly_addresses(const char *heater, const char *filter, const char *co2);
+bool aquapilot_settings_set_shelly_addresses(const char *heater, const char *filter, const char *co2,
+                                             const char *air);
 
 /** Gen2/3/4 digest auth password (username is always "admin"). Empty = no auth. */
 bool aquapilot_settings_get_shelly_password(char *buf, size_t buf_len);
@@ -60,6 +73,9 @@ bool aquapilot_settings_set_co2_power_monitor_enabled(bool enabled);
 
 bool aquapilot_settings_get_heater_shelly_power_monitor_enabled(bool *enabled);
 bool aquapilot_settings_set_heater_shelly_power_monitor_enabled(bool enabled);
+
+bool aquapilot_settings_get_air_power_monitor_enabled(bool *enabled);
+bool aquapilot_settings_set_air_power_monitor_enabled(bool enabled);
 
 bool aquapilot_settings_get_maintenance_mode_enabled(bool *enabled);
 bool aquapilot_settings_set_maintenance_mode_enabled(bool enabled);
@@ -119,6 +135,7 @@ typedef enum {
     AQUAPILOT_TS_METRIC_FILTER_W,
     AQUAPILOT_TS_METRIC_CO2_W,
     AQUAPILOT_TS_METRIC_FEED_STATUS,
+    AQUAPILOT_TS_METRIC_AIR_W,
 } aquapilot_ts_metric_t;
 
 bool aquapilot_settings_get_thingspeak_enabled(bool *enabled);

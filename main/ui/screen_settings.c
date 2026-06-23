@@ -17,6 +17,7 @@
 #include "heater/chihiros_ble.h"
 #include "heater/heater_service.h"
 #include "schedule/aquapilot_time.h"
+#include "schedule/air_schedule.h"
 #include "schedule/co2_automation.h"
 #include "display/display_control.h"
 #include "storage/temp_history.h"
@@ -49,9 +50,12 @@
 #define FEEDER_NUM_INPUT_WIDTH   72
 #define FEEDER_AMOUNT_INPUT_WIDTH 96
 #define FEEDER_TIME_INPUT_WIDTH  88
+#define CO2_TIME_INPUT_WIDTH     176
+#define CO2_TIME_LABEL_WIDTH     280
 #define FEEDER_ACTIONS_COL_WIDTH 108
 
 static bool feeder_host_is_unconfigured(const char *text);
+static void co2_air_update_conflict_label(void);
 
 static lv_obj_t *s_hub_screen;
 static lv_obj_t *s_temp_range_screen;
@@ -72,6 +76,12 @@ static lv_obj_t *s_temp_range_preview;
 static lv_obj_t *s_temp_setpoint_status;
 static lv_obj_t *s_co2_on_ta;
 static lv_obj_t *s_co2_off_ta;
+static lv_obj_t *s_co2_injection_sw;
+static lv_obj_t *s_air_pump_sw;
+static lv_obj_t *s_co2_air_simultaneous_sw;
+static lv_obj_t *s_air_on_ta;
+static lv_obj_t *s_air_off_ta;
+static lv_obj_t *s_co2_air_conflict_lbl;
 static lv_obj_t *s_filter_status;
 static lv_obj_t *s_filter_message;
 static lv_obj_t *s_filter_watts_label;
@@ -89,11 +99,13 @@ static lv_obj_t *s_filter_keyboard;
 static lv_obj_t *s_shelly_heater_ta;
 static lv_obj_t *s_shelly_filter_ta;
 static lv_obj_t *s_shelly_co2_ta;
+static lv_obj_t *s_shelly_air_ta;
 static lv_obj_t *s_shelly_password_ta;
 static lv_obj_t *s_shelly_status;
 static lv_obj_t *s_heater_override_sw;
 static lv_obj_t *s_heater_shelly_power_monitor_sw;
 static lv_obj_t *s_co2_power_monitor_sw;
+static lv_obj_t *s_air_power_monitor_sw;
 static lv_obj_t *s_maintenance_sw;
 static lv_obj_t *s_maintenance_status;
 static lv_timer_t *s_maintenance_ui_timer;
@@ -239,10 +251,17 @@ static void co2_ta_focus_cb(lv_event_t *e)
     show_keyboard_for_textarea(keyboard, ta, LV_KEYBOARD_MODE_USER_1);
 }
 
+static void co2_time_ta_changed_cb(lv_event_t *e)
+{
+    (void)e;
+    co2_air_update_conflict_label();
+}
+
 static void attach_co2_field(lv_obj_t *ta)
 {
     lv_obj_add_event_cb(ta, co2_ta_focus_cb, LV_EVENT_FOCUSED, s_co2_keyboard);
     lv_obj_add_event_cb(ta, ta_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
+    lv_obj_add_event_cb(ta, co2_time_ta_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
 }
 
 static void feeder_ta_focus_cb(lv_event_t *e)
@@ -437,6 +456,75 @@ static void attach_temp_field(lv_obj_t *ta)
     lv_obj_add_event_cb(ta, temp_field_defocus_cb, LV_EVENT_DEFOCUSED, NULL);
 }
 
+static void co2_air_update_conflict_label(void)
+{
+    if (s_co2_air_conflict_lbl == NULL) {
+        return;
+    }
+
+    bool simultaneous = false;
+    if (s_co2_air_simultaneous_sw != NULL) {
+        simultaneous = lv_obj_has_state(s_co2_air_simultaneous_sw, LV_STATE_CHECKED);
+    } else {
+        aquapilot_settings_get_co2_air_simultaneous(&simultaneous);
+    }
+
+    if (simultaneous) {
+        lv_obj_add_flag(s_co2_air_conflict_lbl, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    bool air_enabled = false;
+    bool co2_enabled = false;
+    if (s_air_pump_sw != NULL) {
+        air_enabled = lv_obj_has_state(s_air_pump_sw, LV_STATE_CHECKED);
+    } else {
+        aquapilot_settings_get_air_pump_enabled(&air_enabled);
+    }
+    if (s_co2_injection_sw != NULL) {
+        co2_enabled = lv_obj_has_state(s_co2_injection_sw, LV_STATE_CHECKED);
+    } else {
+        aquapilot_settings_get_co2_injection_enabled(&co2_enabled);
+    }
+
+    if (!air_enabled || !co2_enabled) {
+        lv_obj_add_flag(s_co2_air_conflict_lbl, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    uint8_t co2_on_h = 7;
+    uint8_t co2_on_m = 0;
+    uint8_t co2_off_h = 21;
+    uint8_t co2_off_m = 0;
+    uint8_t air_on_h = 21;
+    uint8_t air_on_m = 0;
+    uint8_t air_off_h = 7;
+    uint8_t air_off_m = 0;
+
+    bool co2_times_ok = s_co2_on_ta != NULL && s_co2_off_ta != NULL &&
+                        parse_time_hhmm(lv_textarea_get_text(s_co2_on_ta), &co2_on_h, &co2_on_m) &&
+                        parse_time_hhmm(lv_textarea_get_text(s_co2_off_ta), &co2_off_h, &co2_off_m);
+    bool air_times_ok = s_air_on_ta != NULL && s_air_off_ta != NULL &&
+                        parse_time_hhmm(lv_textarea_get_text(s_air_on_ta), &air_on_h, &air_on_m) &&
+                        parse_time_hhmm(lv_textarea_get_text(s_air_off_ta), &air_off_h, &air_off_m);
+
+    if (!co2_times_ok) {
+        aquapilot_settings_get_co2_schedule(&co2_on_h, &co2_on_m, &co2_off_h, &co2_off_m);
+    }
+    if (!air_times_ok) {
+        aquapilot_settings_get_air_schedule(&air_on_h, &air_on_m, &air_off_h, &air_off_m);
+    }
+
+    if (schedule_times_overlap(air_on_h, air_on_m, air_off_h, air_off_m, co2_on_h, co2_on_m, co2_off_h, co2_off_m)) {
+        lv_label_set_text(s_co2_air_conflict_lbl,
+                          "Warning: Air and CO2 schedules overlap. CO2 takes priority; air will not run during "
+                          "injection.");
+        lv_obj_remove_flag(s_co2_air_conflict_lbl, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_co2_air_conflict_lbl, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void co2_save_from_fields(void)
 {
     if (s_co2_on_ta == NULL || s_co2_off_ta == NULL) {
@@ -447,11 +535,29 @@ static void co2_save_from_fields(void)
     uint8_t on_m = 0;
     uint8_t off_h = 21;
     uint8_t off_m = 0;
-    parse_time_hhmm(lv_textarea_get_text(s_co2_on_ta), &on_h, &on_m);
-    parse_time_hhmm(lv_textarea_get_text(s_co2_off_ta), &off_h, &off_m);
-    if (aquapilot_settings_set_co2_schedule(on_h, on_m, off_h, off_m)) {
+    bool changed = false;
+    if (parse_time_hhmm(lv_textarea_get_text(s_co2_on_ta), &on_h, &on_m) &&
+        parse_time_hhmm(lv_textarea_get_text(s_co2_off_ta), &off_h, &off_m) &&
+        aquapilot_settings_set_co2_schedule(on_h, on_m, off_h, off_m)) {
+        changed = true;
+    }
+
+    if (s_air_on_ta != NULL && s_air_off_ta != NULL) {
+        uint8_t air_on_h = 21;
+        uint8_t air_on_m = 0;
+        uint8_t air_off_h = 7;
+        uint8_t air_off_m = 0;
+        if (parse_time_hhmm(lv_textarea_get_text(s_air_on_ta), &air_on_h, &air_on_m) &&
+            parse_time_hhmm(lv_textarea_get_text(s_air_off_ta), &air_off_h, &air_off_m) &&
+            aquapilot_settings_set_air_schedule(air_on_h, air_on_m, air_off_h, air_off_m)) {
+            changed = true;
+        }
+    }
+
+    if (changed) {
         co2_automation_sync_now();
     }
+    co2_air_update_conflict_label();
 }
 
 static void co2_refresh_fields(void)
@@ -472,6 +578,50 @@ static void co2_refresh_fields(void)
     format_time_hhmm(off_buf, sizeof(off_buf), off_h, off_m);
     lv_textarea_set_text(s_co2_on_ta, on_buf);
     lv_textarea_set_text(s_co2_off_ta, off_buf);
+
+    if (s_air_on_ta != NULL && s_air_off_ta != NULL) {
+        uint8_t air_on_h = 21;
+        uint8_t air_on_m = 0;
+        uint8_t air_off_h = 7;
+        uint8_t air_off_m = 0;
+        aquapilot_settings_get_air_schedule(&air_on_h, &air_on_m, &air_off_h, &air_off_m);
+        format_time_hhmm(on_buf, sizeof(on_buf), air_on_h, air_on_m);
+        format_time_hhmm(off_buf, sizeof(off_buf), air_off_h, air_off_m);
+        lv_textarea_set_text(s_air_on_ta, on_buf);
+        lv_textarea_set_text(s_air_off_ta, off_buf);
+    }
+
+    if (s_air_pump_sw != NULL) {
+        bool enabled = false;
+        aquapilot_settings_get_air_pump_enabled(&enabled);
+        if (enabled) {
+            lv_obj_add_state(s_air_pump_sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_air_pump_sw, LV_STATE_CHECKED);
+        }
+    }
+
+    if (s_co2_injection_sw != NULL) {
+        bool enabled = false;
+        aquapilot_settings_get_co2_injection_enabled(&enabled);
+        if (enabled) {
+            lv_obj_add_state(s_co2_injection_sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_co2_injection_sw, LV_STATE_CHECKED);
+        }
+    }
+
+    if (s_co2_air_simultaneous_sw != NULL) {
+        bool enabled = false;
+        aquapilot_settings_get_co2_air_simultaneous(&enabled);
+        if (enabled) {
+            lv_obj_add_state(s_co2_air_simultaneous_sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_co2_air_simultaneous_sw, LV_STATE_CHECKED);
+        }
+    }
+
+    co2_air_update_conflict_label();
 }
 
 static void feeder_show_status(const char *text)
@@ -962,17 +1112,20 @@ static void shelly_ta_focus_cb(lv_event_t *e)
 
 static bool shelly_save_from_fields(void)
 {
-    if (s_shelly_heater_ta == NULL || s_shelly_filter_ta == NULL || s_shelly_co2_ta == NULL) {
+    if (s_shelly_heater_ta == NULL || s_shelly_filter_ta == NULL || s_shelly_co2_ta == NULL ||
+        s_shelly_air_ta == NULL) {
         return false;
     }
 
     const char *heater_txt = lv_textarea_get_text(s_shelly_heater_ta);
     const char *filter_txt = lv_textarea_get_text(s_shelly_filter_ta);
     const char *co2_txt = lv_textarea_get_text(s_shelly_co2_ta);
+    const char *air_txt = lv_textarea_get_text(s_shelly_air_ta);
 
     if (!aquapilot_settings_set_shelly_addresses(shelly_text_for_save(heater_txt),
                                                  shelly_text_for_save(filter_txt),
-                                                 shelly_text_for_save(co2_txt))) {
+                                                 shelly_text_for_save(co2_txt),
+                                                 shelly_text_for_save(air_txt))) {
         shelly_show_status("Use hostnames or IPs (letters, numbers, . - : only).");
         return false;
     }
@@ -1005,6 +1158,10 @@ static void shelly_refresh_fields(void)
         aquapilot_settings_get_shelly_address(AQUAPILOT_SHELLY_CO2, buf, sizeof(buf));
         shelly_set_field_text(s_shelly_co2_ta, buf);
     }
+    if (s_shelly_air_ta != NULL) {
+        aquapilot_settings_get_shelly_address(AQUAPILOT_SHELLY_AIR, buf, sizeof(buf));
+        shelly_set_field_text(s_shelly_air_ta, buf);
+    }
     if (s_shelly_password_ta != NULL) {
         char pass[AQUAPILOT_SHELLY_PASSWORD_MAX + 1];
         aquapilot_settings_get_shelly_password(pass, sizeof(pass));
@@ -1020,11 +1177,12 @@ static void settings_keyboard_accept(lv_obj_t *ta)
         return;
     }
 
-    if (ta == s_co2_on_ta || ta == s_co2_off_ta) {
+    if (ta == s_co2_on_ta || ta == s_co2_off_ta || ta == s_air_on_ta || ta == s_air_off_ta) {
         co2_save_from_fields();
     } else if (ta == s_temp_setpoint_ta || ta == s_temp_delta_plus_ta || ta == s_temp_delta_minus_ta) {
         temp_settings_save_from_fields();
-    } else if (ta == s_shelly_heater_ta || ta == s_shelly_filter_ta || ta == s_shelly_co2_ta) {
+    } else if (ta == s_shelly_heater_ta || ta == s_shelly_filter_ta || ta == s_shelly_co2_ta ||
+               ta == s_shelly_air_ta) {
         shelly_save_from_fields();
     } else if (ta == s_manual_date_ta || ta == s_manual_time_ta) {
         time_settings_save_from_fields();
@@ -1087,6 +1245,17 @@ static void safety_refresh_fields(void)
         }
     }
 
+    bool air_monitor = false;
+    aquapilot_settings_get_air_power_monitor_enabled(&air_monitor);
+
+    if (s_air_power_monitor_sw != NULL) {
+        if (air_monitor) {
+            lv_obj_add_state(s_air_power_monitor_sw, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(s_air_power_monitor_sw, LV_STATE_CHECKED);
+        }
+    }
+
     bool heater_shelly_monitor = false;
     aquapilot_settings_get_heater_shelly_power_monitor_enabled(&heater_shelly_monitor);
 
@@ -1106,11 +1275,42 @@ static void heater_override_switch_cb(lv_event_t *e)
     aquapilot_settings_set_heater_override_enabled(enabled);
 }
 
+static void air_pump_switch_cb(lv_event_t *e)
+{
+    const bool enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    aquapilot_settings_set_air_pump_enabled(enabled);
+    co2_automation_sync_now();
+    co2_air_update_conflict_label();
+}
+
+static void co2_injection_switch_cb(lv_event_t *e)
+{
+    const bool enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    aquapilot_settings_set_co2_injection_enabled(enabled);
+    co2_automation_sync_now();
+    co2_air_update_conflict_label();
+}
+
+static void co2_air_simultaneous_switch_cb(lv_event_t *e)
+{
+    const bool enabled = lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED);
+    aquapilot_settings_set_co2_air_simultaneous(enabled);
+    co2_automation_sync_now();
+    co2_air_update_conflict_label();
+}
+
 static void co2_power_monitor_switch_cb(lv_event_t *e)
 {
     lv_obj_t *sw = lv_event_get_target(e);
     const bool enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
     aquapilot_settings_set_co2_power_monitor_enabled(enabled);
+}
+
+static void air_power_monitor_switch_cb(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    const bool enabled = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    aquapilot_settings_set_air_power_monitor_enabled(enabled);
 }
 
 static void heater_shelly_power_monitor_switch_cb(lv_event_t *e)
@@ -1834,7 +2034,7 @@ static void create_hub_screen(void)
     create_menu_button_grid(menu, "Tank Temperature Settings", menu_temp_settings_cb, 0, 1);
     create_menu_button_grid(menu, "Shelly Configuration", menu_shelly_cb, 1, 1);
     create_menu_button_grid(menu, "Safety Settings", menu_safety_cb, 0, 2);
-    create_menu_button_grid(menu, "CO2 Schedule", menu_co2_cb, 1, 2);
+    create_menu_button_grid(menu, "CO2 / Air Settings", menu_co2_cb, 1, 2);
     create_menu_button_grid(menu, "Filter Calibration", menu_filter_cb, 0, 3);
     create_menu_button_grid(menu, "Maintenance Mode", menu_maintenance_cb, 1, 3);
     create_menu_button_grid(menu, "Automatic Feeder", menu_feeder_cb, 0, 4);
@@ -1901,6 +2101,58 @@ static void create_temp_range_screen(void)
     lv_obj_move_foreground(back);
 }
 
+static lv_obj_t *create_feeder_narrow_field(lv_obj_t *parent, const char *placeholder, lv_coord_t width)
+{
+    lv_obj_t *ta = lv_textarea_create(parent);
+    lv_obj_set_width(ta, width);
+    lv_obj_set_height(ta, 48);
+    lv_textarea_set_one_line(ta, true);
+    lv_textarea_set_max_length(ta, 8);
+    lv_textarea_set_placeholder_text(ta, placeholder);
+    return ta;
+}
+
+static lv_obj_t *create_inline_time_row(lv_obj_t *parent, const char *label_text, const char *placeholder)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 8, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *lbl = lv_label_create(row);
+    lv_label_set_text(lbl, label_text);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(lbl, CO2_TIME_LABEL_WIDTH);
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_RIGHT, 0);
+
+    lv_obj_t *ta = create_feeder_narrow_field(row, placeholder, CO2_TIME_INPUT_WIDTH);
+    lv_textarea_set_max_length(ta, 5);
+    return ta;
+}
+
+static lv_obj_t *create_section_header_row(lv_obj_t *parent, const char *title)
+{
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *lbl = lv_label_create(row);
+    lv_label_set_text(lbl, title);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(VALUE_COLOR), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+
+    return row;
+}
+
 static void create_co2_screen(void)
 {
     s_co2_screen = lv_obj_create(NULL);
@@ -1909,17 +2161,46 @@ static void create_co2_screen(void)
     lv_obj_set_flex_align(s_co2_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_row(s_co2_screen, 12, 0);
 
-    create_screen_title(s_co2_screen, "CO2 Schedule");
+    create_screen_title(s_co2_screen, "CO2 / Air Settings");
 
     lv_obj_t *form = create_form_panel(s_co2_screen);
 
-    create_field_label(form, "Injection on (HH:MM, 24h)");
-    s_co2_on_ta = create_one_line_field(form, "07:00");
-    lv_textarea_set_max_length(s_co2_on_ta, 5);
+    lv_obj_t *co2_header_row = create_section_header_row(form, "CO2 Injection");
+    s_co2_injection_sw = lv_switch_create(co2_header_row);
+    lv_obj_add_event_cb(s_co2_injection_sw, co2_injection_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    create_field_label(form, "Injection off (HH:MM, 24h)");
-    s_co2_off_ta = create_one_line_field(form, "21:00");
-    lv_textarea_set_max_length(s_co2_off_ta, 5);
+    s_co2_on_ta = create_inline_time_row(form, "Injection on (HH:MM, 24h)", "07:00");
+    s_co2_off_ta = create_inline_time_row(form, "Injection off (HH:MM, 24h)", "21:00");
+
+    lv_obj_t *air_header_row = create_section_header_row(form, "Air Pump");
+    s_air_pump_sw = lv_switch_create(air_header_row);
+    lv_obj_add_event_cb(s_air_pump_sw, air_pump_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_air_on_ta = create_inline_time_row(form, "Air on (HH:MM, 24h)", "21:00");
+    s_air_off_ta = create_inline_time_row(form, "Air off (HH:MM, 24h)", "07:00");
+
+    lv_obj_t *simultaneous_row = lv_obj_create(form);
+    lv_obj_remove_style_all(simultaneous_row);
+    lv_obj_set_width(simultaneous_row, LV_PCT(100));
+    lv_obj_set_height(simultaneous_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(simultaneous_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(simultaneous_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(simultaneous_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *simultaneous_lbl = lv_label_create(simultaneous_row);
+    lv_label_set_text(simultaneous_lbl, "Run air and CO2 together");
+    lv_obj_set_style_text_color(simultaneous_lbl, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(simultaneous_lbl, &lv_font_montserrat_16, 0);
+
+    s_co2_air_simultaneous_sw = lv_switch_create(simultaneous_row);
+    lv_obj_add_event_cb(s_co2_air_simultaneous_sw, co2_air_simultaneous_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_co2_air_conflict_lbl = lv_label_create(form);
+    lv_label_set_text(s_co2_air_conflict_lbl, "");
+    lv_obj_set_style_text_color(s_co2_air_conflict_lbl, lv_color_hex(0xFF7B72), 0);
+    lv_obj_set_style_text_font(s_co2_air_conflict_lbl, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(s_co2_air_conflict_lbl, LV_PCT(100));
+    lv_obj_add_flag(s_co2_air_conflict_lbl, LV_OBJ_FLAG_HIDDEN);
 
     s_co2_keyboard = lv_keyboard_create(s_co2_screen);
     lv_obj_set_width(s_co2_keyboard, LV_PCT(100));
@@ -1930,6 +2211,8 @@ static void create_co2_screen(void)
 
     attach_co2_field(s_co2_on_ta);
     attach_co2_field(s_co2_off_ta);
+    attach_co2_field(s_air_on_ta);
+    attach_co2_field(s_air_off_ta);
     co2_refresh_fields();
 
     lv_obj_t *back = ui_create_back_button(s_co2_screen, co2_back_cb);
@@ -1974,17 +2257,6 @@ static lv_obj_t *create_feeder_field_label(lv_obj_t *parent, const char *text)
     lv_obj_set_width(lbl, LV_PCT(100));
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_MODE_WRAP);
     return lbl;
-}
-
-static lv_obj_t *create_feeder_narrow_field(lv_obj_t *parent, const char *placeholder, lv_coord_t width)
-{
-    lv_obj_t *ta = lv_textarea_create(parent);
-    lv_obj_set_width(ta, width);
-    lv_obj_set_height(ta, 48);
-    lv_textarea_set_one_line(ta, true);
-    lv_textarea_set_max_length(ta, 8);
-    lv_textarea_set_placeholder_text(ta, placeholder);
-    return ta;
 }
 
 static lv_obj_t *create_band_grid_row(lv_obj_t *parent)
@@ -2332,6 +2604,9 @@ static void create_shelly_screen(void)
     create_field_label(form, "CO2 plug address");
     s_shelly_co2_ta = create_address_field(form, "12");
 
+    create_field_label(form, "Air pump plug address");
+    s_shelly_air_ta = create_address_field(form, "13");
+
     create_field_label(form, "Device password (admin)");
     s_shelly_password_ta = lv_textarea_create(form);
     lv_obj_set_width(s_shelly_password_ta, LV_PCT(100));
@@ -2357,6 +2632,7 @@ static void create_shelly_screen(void)
     attach_shelly_field(s_shelly_heater_ta);
     attach_shelly_field(s_shelly_filter_ta);
     attach_shelly_field(s_shelly_co2_ta);
+    attach_shelly_field(s_shelly_air_ta);
     shelly_refresh_fields();
 
     lv_obj_t *back = ui_create_back_button(s_shelly_screen, shelly_back_cb);
@@ -2469,6 +2745,36 @@ static void create_safety_screen(void)
 
     s_co2_power_monitor_sw = lv_switch_create(co2_toggle_row);
     lv_obj_add_event_cb(s_co2_power_monitor_sw, co2_power_monitor_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *air_section = lv_label_create(form);
+    lv_label_set_text(air_section, "Air Pump Power Monitor");
+    lv_obj_set_style_text_color(air_section, lv_color_hex(VALUE_COLOR), 0);
+    lv_obj_set_style_text_font(air_section, &lv_font_montserrat_20, 0);
+    lv_obj_set_width(air_section, LV_PCT(100));
+
+    lv_obj_t *air_desc = lv_label_create(form);
+    lv_label_set_text(air_desc,
+                      "When enabled, alerts if the air pump is scheduled on but the Shelly plug is drawing "
+                      "5 W or less, and turns off the plug if it draws power outside the air schedule.");
+    lv_obj_set_style_text_color(air_desc, lv_color_hex(STATUS_COLOR), 0);
+    lv_obj_set_style_text_font(air_desc, &lv_font_montserrat_16, 0);
+    lv_obj_set_width(air_desc, LV_PCT(100));
+
+    lv_obj_t *air_toggle_row = lv_obj_create(form);
+    lv_obj_remove_style_all(air_toggle_row);
+    lv_obj_set_width(air_toggle_row, LV_PCT(100));
+    lv_obj_set_height(air_toggle_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(air_toggle_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(air_toggle_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(air_toggle_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *air_enable_lbl = lv_label_create(air_toggle_row);
+    lv_label_set_text(air_enable_lbl, "Enable");
+    lv_obj_set_style_text_color(air_enable_lbl, lv_color_hex(LABEL_COLOR), 0);
+    lv_obj_set_style_text_font(air_enable_lbl, &lv_font_montserrat_16, 0);
+
+    s_air_power_monitor_sw = lv_switch_create(air_toggle_row);
+    lv_obj_add_event_cb(s_air_power_monitor_sw, air_power_monitor_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     safety_refresh_fields();
     lv_obj_t *back = ui_create_back_button(s_safety_screen, sub_back_cb);

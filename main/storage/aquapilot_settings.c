@@ -34,6 +34,10 @@ static const char *LEGACY_TEMP_KEY = "temp_range_v1";
 #define SETTINGS_MAGIC_V20 0x41515044u /* AQP20 */
 #define SETTINGS_MAGIC_V21 0x41515045u /* AQP21 */
 #define SETTINGS_MAGIC_V22 0x41515046u /* AQP22 */
+#define SETTINGS_MAGIC_V23 0x41515047u /* AQP23 */
+#define SETTINGS_MAGIC_V24 0x41515048u /* AQP24 */
+#define SETTINGS_MAGIC_V25 0x41515049u /* AQP25 */
+#define SETTINGS_MAGIC_V26 0x4151504Au /* AQP26 */
 
 #define DEFAULT_THINGSPEAK_CHANNEL_ID "3413161"
 #define DEFAULT_THINGSPEAK_INTERVAL_MIN 30
@@ -72,6 +76,10 @@ static const char *LEGACY_TEMP_KEY = "temp_range_v1";
 #define DEFAULT_CO2_ON_M        0
 #define DEFAULT_CO2_OFF_H       21
 #define DEFAULT_CO2_OFF_M       0
+#define DEFAULT_AIR_ON_H        21
+#define DEFAULT_AIR_ON_M        0
+#define DEFAULT_AIR_OFF_H       7
+#define DEFAULT_AIR_OFF_M       0
 #define MIN_DELTA_F             0.1f
 #define MAX_DELTA_F             25.0f
 #define DEFAULT_TIMEZONE        "UTC0"
@@ -708,6 +716,236 @@ typedef struct __attribute__((packed)) {
     char thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX + 1];
     uint8_t thingspeak_field_metric[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
     uint16_t thingspeak_field_interval_min[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+} settings_blob_v22_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t co2_on_h;
+    uint8_t co2_on_m;
+    uint8_t co2_off_h;
+    uint8_t co2_off_m;
+    uint8_t filter_calibrated;
+    uint8_t heater_setpoint_valid;
+    float heater_setpoint_f;
+    float temp_delta_plus_f;
+    float temp_delta_minus_f;
+    char shelly_heater[SHELLY_ADDR_LEN];
+    char shelly_filter[SHELLY_ADDR_LEN];
+    char shelly_co2[SHELLY_ADDR_LEN];
+    uint8_t heater_override_enabled;
+    uint8_t wifi_time_enabled;
+    uint8_t manual_time_valid;
+    uint8_t reserved;
+    int64_t manual_epoch;
+    char timezone[AQUAPILOT_TIMEZONE_MAX];
+    uint8_t co2_power_monitor_enabled;
+    uint8_t heater_shelly_power_monitor_enabled;
+    float filter_baseline_watts;
+    uint8_t filter_band_green_pct;
+    uint8_t filter_band_yellow_pct;
+    uint8_t filter_band_red_pct;
+    uint8_t filter_band_red_cutoff_pct;
+    uint8_t maintenance_mode_enabled;
+    uint8_t feeder_enabled;
+    uint8_t feeder_start_h;
+    uint8_t feeder_start_m;
+    uint8_t feeder_end_h;
+    uint8_t feeder_end_m;
+    uint8_t feeder_times_per_day;
+    uint16_t feeder_amount_tenths;
+    char feeder_host[SHELLY_ADDR_LEN];
+    uint8_t display_flip_180;
+    uint8_t display_brightness_pct;
+    uint8_t temp_graph_logging_enabled;
+    char shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX + 1];
+    int32_t maint_next_due_epoch[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    uint8_t maint_interval_days[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    aquapilot_maint_custom_t maint_custom[AQUAPILOT_MAINT_CUSTOM_MAX];
+    uint8_t thingspeak_enabled;
+    char thingspeak_api_key[AQUAPILOT_THINGSPEAK_KEY_MAX + 1];
+    char thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX + 1];
+    uint8_t thingspeak_field_metric[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    uint16_t thingspeak_field_interval_min[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    char shelly_air[SHELLY_ADDR_LEN];
+    uint8_t air_pump_enabled;
+    uint8_t air_on_h;
+    uint8_t air_on_m;
+    uint8_t air_off_h;
+    uint8_t air_off_m;
+} settings_blob_v23_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t co2_on_h;
+    uint8_t co2_on_m;
+    uint8_t co2_off_h;
+    uint8_t co2_off_m;
+    uint8_t filter_calibrated;
+    uint8_t heater_setpoint_valid;
+    float heater_setpoint_f;
+    float temp_delta_plus_f;
+    float temp_delta_minus_f;
+    char shelly_heater[SHELLY_ADDR_LEN];
+    char shelly_filter[SHELLY_ADDR_LEN];
+    char shelly_co2[SHELLY_ADDR_LEN];
+    uint8_t heater_override_enabled;
+    uint8_t wifi_time_enabled;
+    uint8_t manual_time_valid;
+    uint8_t reserved;
+    int64_t manual_epoch;
+    char timezone[AQUAPILOT_TIMEZONE_MAX];
+    uint8_t co2_power_monitor_enabled;
+    uint8_t heater_shelly_power_monitor_enabled;
+    float filter_baseline_watts;
+    uint8_t filter_band_green_pct;
+    uint8_t filter_band_yellow_pct;
+    uint8_t filter_band_red_pct;
+    uint8_t filter_band_red_cutoff_pct;
+    uint8_t maintenance_mode_enabled;
+    uint8_t feeder_enabled;
+    uint8_t feeder_start_h;
+    uint8_t feeder_start_m;
+    uint8_t feeder_end_h;
+    uint8_t feeder_end_m;
+    uint8_t feeder_times_per_day;
+    uint16_t feeder_amount_tenths;
+    char feeder_host[SHELLY_ADDR_LEN];
+    uint8_t display_flip_180;
+    uint8_t display_brightness_pct;
+    uint8_t temp_graph_logging_enabled;
+    char shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX + 1];
+    int32_t maint_next_due_epoch[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    uint8_t maint_interval_days[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    aquapilot_maint_custom_t maint_custom[AQUAPILOT_MAINT_CUSTOM_MAX];
+    uint8_t thingspeak_enabled;
+    char thingspeak_api_key[AQUAPILOT_THINGSPEAK_KEY_MAX + 1];
+    char thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX + 1];
+    uint8_t thingspeak_field_metric[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    uint16_t thingspeak_field_interval_min[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    char shelly_air[SHELLY_ADDR_LEN];
+    uint8_t air_pump_enabled;
+    uint8_t air_on_h;
+    uint8_t air_on_m;
+    uint8_t air_off_h;
+    uint8_t air_off_m;
+    uint8_t air_power_monitor_enabled;
+} settings_blob_v24_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t co2_on_h;
+    uint8_t co2_on_m;
+    uint8_t co2_off_h;
+    uint8_t co2_off_m;
+    uint8_t filter_calibrated;
+    uint8_t heater_setpoint_valid;
+    float heater_setpoint_f;
+    float temp_delta_plus_f;
+    float temp_delta_minus_f;
+    char shelly_heater[SHELLY_ADDR_LEN];
+    char shelly_filter[SHELLY_ADDR_LEN];
+    char shelly_co2[SHELLY_ADDR_LEN];
+    uint8_t heater_override_enabled;
+    uint8_t wifi_time_enabled;
+    uint8_t manual_time_valid;
+    uint8_t reserved;
+    int64_t manual_epoch;
+    char timezone[AQUAPILOT_TIMEZONE_MAX];
+    uint8_t co2_power_monitor_enabled;
+    uint8_t heater_shelly_power_monitor_enabled;
+    float filter_baseline_watts;
+    uint8_t filter_band_green_pct;
+    uint8_t filter_band_yellow_pct;
+    uint8_t filter_band_red_pct;
+    uint8_t filter_band_red_cutoff_pct;
+    uint8_t maintenance_mode_enabled;
+    uint8_t feeder_enabled;
+    uint8_t feeder_start_h;
+    uint8_t feeder_start_m;
+    uint8_t feeder_end_h;
+    uint8_t feeder_end_m;
+    uint8_t feeder_times_per_day;
+    uint16_t feeder_amount_tenths;
+    char feeder_host[SHELLY_ADDR_LEN];
+    uint8_t display_flip_180;
+    uint8_t display_brightness_pct;
+    uint8_t temp_graph_logging_enabled;
+    char shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX + 1];
+    int32_t maint_next_due_epoch[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    uint8_t maint_interval_days[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    aquapilot_maint_custom_t maint_custom[AQUAPILOT_MAINT_CUSTOM_MAX];
+    uint8_t thingspeak_enabled;
+    char thingspeak_api_key[AQUAPILOT_THINGSPEAK_KEY_MAX + 1];
+    char thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX + 1];
+    uint8_t thingspeak_field_metric[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    uint16_t thingspeak_field_interval_min[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    char shelly_air[SHELLY_ADDR_LEN];
+    uint8_t air_pump_enabled;
+    uint8_t air_on_h;
+    uint8_t air_on_m;
+    uint8_t air_off_h;
+    uint8_t air_off_m;
+    uint8_t air_power_monitor_enabled;
+    uint8_t co2_injection_enabled;
+} settings_blob_v25_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint8_t co2_on_h;
+    uint8_t co2_on_m;
+    uint8_t co2_off_h;
+    uint8_t co2_off_m;
+    uint8_t filter_calibrated;
+    uint8_t heater_setpoint_valid;
+    float heater_setpoint_f;
+    float temp_delta_plus_f;
+    float temp_delta_minus_f;
+    char shelly_heater[SHELLY_ADDR_LEN];
+    char shelly_filter[SHELLY_ADDR_LEN];
+    char shelly_co2[SHELLY_ADDR_LEN];
+    uint8_t heater_override_enabled;
+    uint8_t wifi_time_enabled;
+    uint8_t manual_time_valid;
+    uint8_t reserved;
+    int64_t manual_epoch;
+    char timezone[AQUAPILOT_TIMEZONE_MAX];
+    uint8_t co2_power_monitor_enabled;
+    uint8_t heater_shelly_power_monitor_enabled;
+    float filter_baseline_watts;
+    uint8_t filter_band_green_pct;
+    uint8_t filter_band_yellow_pct;
+    uint8_t filter_band_red_pct;
+    uint8_t filter_band_red_cutoff_pct;
+    uint8_t maintenance_mode_enabled;
+    uint8_t feeder_enabled;
+    uint8_t feeder_start_h;
+    uint8_t feeder_start_m;
+    uint8_t feeder_end_h;
+    uint8_t feeder_end_m;
+    uint8_t feeder_times_per_day;
+    uint16_t feeder_amount_tenths;
+    char feeder_host[SHELLY_ADDR_LEN];
+    uint8_t display_flip_180;
+    uint8_t display_brightness_pct;
+    uint8_t temp_graph_logging_enabled;
+    char shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX + 1];
+    int32_t maint_next_due_epoch[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    uint8_t maint_interval_days[AQUAPILOT_MAINT_ACTIVITY_COUNT];
+    aquapilot_maint_custom_t maint_custom[AQUAPILOT_MAINT_CUSTOM_MAX];
+    uint8_t thingspeak_enabled;
+    char thingspeak_api_key[AQUAPILOT_THINGSPEAK_KEY_MAX + 1];
+    char thingspeak_channel_id[AQUAPILOT_THINGSPEAK_CHANNEL_MAX + 1];
+    uint8_t thingspeak_field_metric[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    uint16_t thingspeak_field_interval_min[AQUAPILOT_THINGSPEAK_FIELD_COUNT];
+    char shelly_air[SHELLY_ADDR_LEN];
+    uint8_t air_pump_enabled;
+    uint8_t air_on_h;
+    uint8_t air_on_m;
+    uint8_t air_off_h;
+    uint8_t air_off_m;
+    uint8_t air_power_monitor_enabled;
+    uint8_t co2_injection_enabled;
+    uint8_t co2_air_simultaneous;
 } settings_blob_t;
 
 typedef struct __attribute__((packed)) {
@@ -720,11 +958,12 @@ typedef struct __attribute__((packed)) {
 static settings_blob_t s_settings;
 
 static void apply_default_thingspeak_settings(settings_blob_t *s);
+static void apply_default_air_settings(settings_blob_t *s);
 
 static void settings_defaults(settings_blob_t *s)
 {
     memset(s, 0, sizeof(*s));
-    s->magic = SETTINGS_MAGIC_V22;
+    s->magic = SETTINGS_MAGIC_V26;
     s->co2_on_h = DEFAULT_CO2_ON_H;
     s->co2_on_m = DEFAULT_CO2_ON_M;
     s->co2_off_h = DEFAULT_CO2_OFF_H;
@@ -771,6 +1010,23 @@ static void settings_defaults(settings_blob_t *s)
     s->maint_interval_days[3] = DEFAULT_MAINT_INTERVAL_CHECK_CO2_D;
     s->maint_interval_days[4] = DEFAULT_MAINT_INTERVAL_FILL_FEEDER_D;
     apply_default_thingspeak_settings(s);
+    apply_default_air_settings(s);
+}
+
+static void apply_default_air_settings(settings_blob_t *s)
+{
+    if (s == NULL) {
+        return;
+    }
+    s->shelly_air[0] = '\0';
+    s->air_pump_enabled = 0;
+    s->air_on_h = DEFAULT_AIR_ON_H;
+    s->air_on_m = DEFAULT_AIR_ON_M;
+    s->air_off_h = DEFAULT_AIR_OFF_H;
+    s->air_off_m = DEFAULT_AIR_OFF_M;
+    s->air_power_monitor_enabled = 0;
+    s->co2_injection_enabled = 1;
+    s->co2_air_simultaneous = 0;
 }
 
 static void apply_default_thingspeak_settings(settings_blob_t *s)
@@ -786,13 +1042,14 @@ static void apply_default_thingspeak_settings(settings_blob_t *s)
     s->thingspeak_field_metric[1] = AQUAPILOT_TS_METRIC_FILTER_W;
     s->thingspeak_field_metric[2] = AQUAPILOT_TS_METRIC_CO2_W;
     s->thingspeak_field_metric[3] = AQUAPILOT_TS_METRIC_FEED_STATUS;
-    for (int i = 4; i < AQUAPILOT_THINGSPEAK_FIELD_COUNT; i++) {
+    s->thingspeak_field_metric[4] = AQUAPILOT_TS_METRIC_AIR_W;
+    for (int i = 5; i < AQUAPILOT_THINGSPEAK_FIELD_COUNT; i++) {
         s->thingspeak_field_metric[i] = AQUAPILOT_TS_METRIC_NONE;
     }
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         s->thingspeak_field_interval_min[i] = DEFAULT_THINGSPEAK_INTERVAL_MIN;
     }
-    for (int i = 4; i < AQUAPILOT_THINGSPEAK_FIELD_COUNT; i++) {
+    for (int i = 5; i < AQUAPILOT_THINGSPEAK_FIELD_COUNT; i++) {
         s->thingspeak_field_interval_min[i] = 0;
     }
 }
@@ -842,6 +1099,7 @@ static void ensure_shelly_strings_null_terminated(void)
     s_settings.shelly_heater[SHELLY_ADDR_LEN - 1] = '\0';
     s_settings.shelly_filter[SHELLY_ADDR_LEN - 1] = '\0';
     s_settings.shelly_co2[SHELLY_ADDR_LEN - 1] = '\0';
+    s_settings.shelly_air[SHELLY_ADDR_LEN - 1] = '\0';
     s_settings.feeder_host[SHELLY_ADDR_LEN - 1] = '\0';
     ensure_time_strings_null_terminated();
 }
@@ -877,6 +1135,8 @@ static char *shelly_slot(settings_blob_t *s, aquapilot_shelly_plug_t plug)
         return s->shelly_filter;
     case AQUAPILOT_SHELLY_CO2:
         return s->shelly_co2;
+    case AQUAPILOT_SHELLY_AIR:
+        return s->shelly_air;
     default:
         return NULL;
     }
@@ -1208,22 +1468,104 @@ static void finalize_settings_v22(void)
     s_settings.magic = SETTINGS_MAGIC_V22;
 }
 
+static void finalize_settings_v23(void)
+{
+    finalize_settings_v22();
+    apply_default_air_settings(&s_settings);
+    if (s_settings.thingspeak_field_metric[4] == AQUAPILOT_TS_METRIC_NONE) {
+        s_settings.thingspeak_field_metric[4] = AQUAPILOT_TS_METRIC_AIR_W;
+        s_settings.thingspeak_field_interval_min[4] = DEFAULT_THINGSPEAK_INTERVAL_MIN;
+    }
+    s_settings.magic = SETTINGS_MAGIC_V23;
+}
+
+static void finalize_settings_v24(void)
+{
+    finalize_settings_v23();
+    s_settings.air_power_monitor_enabled = 0;
+    s_settings.magic = SETTINGS_MAGIC_V24;
+}
+
+static void finalize_settings_v25(void)
+{
+    finalize_settings_v24();
+    s_settings.co2_injection_enabled = 1;
+    s_settings.magic = SETTINGS_MAGIC_V25;
+}
+
+static void finalize_settings_v26(void)
+{
+    finalize_settings_v25();
+    s_settings.co2_air_simultaneous = 0;
+    s_settings.magic = SETTINGS_MAGIC_V26;
+}
+
+static void upgrade_v25_blob(const settings_blob_v25_t *loaded)
+{
+    memset(&s_settings, 0, sizeof(s_settings));
+    memcpy(&s_settings, loaded, sizeof(settings_blob_v25_t));
+    s_settings.co2_air_simultaneous = 0;
+    s_settings.magic = SETTINGS_MAGIC_V26;
+    ensure_shelly_strings_null_terminated();
+    save_settings();
+    ESP_LOGI(TAG, "upgraded settings v25 → v26");
+}
+
+static void upgrade_v24_blob(const settings_blob_v24_t *loaded)
+{
+    memset(&s_settings, 0, sizeof(s_settings));
+    memcpy(&s_settings, loaded, sizeof(settings_blob_v24_t));
+    s_settings.co2_injection_enabled = 1;
+    s_settings.co2_air_simultaneous = 0;
+    s_settings.magic = SETTINGS_MAGIC_V26;
+    ensure_shelly_strings_null_terminated();
+    save_settings();
+    ESP_LOGI(TAG, "upgraded settings v24 → v26");
+}
+
+static void upgrade_v23_blob(const settings_blob_v23_t *loaded)
+{
+    memset(&s_settings, 0, sizeof(s_settings));
+    memcpy(&s_settings, loaded, sizeof(settings_blob_v23_t));
+    s_settings.air_power_monitor_enabled = 0;
+    s_settings.co2_injection_enabled = 1;
+    s_settings.co2_air_simultaneous = 0;
+    s_settings.magic = SETTINGS_MAGIC_V26;
+    ensure_shelly_strings_null_terminated();
+    save_settings();
+    ESP_LOGI(TAG, "upgraded settings v23 → v26");
+}
+
+static void upgrade_v22_blob(const settings_blob_v22_t *loaded)
+{
+    memset(&s_settings, 0, sizeof(s_settings));
+    memcpy(&s_settings, loaded, sizeof(settings_blob_v22_t));
+    apply_default_air_settings(&s_settings);
+    if (s_settings.thingspeak_field_metric[4] == AQUAPILOT_TS_METRIC_NONE) {
+        s_settings.thingspeak_field_metric[4] = AQUAPILOT_TS_METRIC_AIR_W;
+        s_settings.thingspeak_field_interval_min[4] = DEFAULT_THINGSPEAK_INTERVAL_MIN;
+    }
+    s_settings.magic = SETTINGS_MAGIC_V26;
+    ensure_shelly_strings_null_terminated();
+    save_settings();
+    ESP_LOGI(TAG, "upgraded settings v22 → v26");
+}
+
 static void upgrade_v21_blob(const settings_blob_v21_t *loaded)
 {
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v21_t));
-    apply_default_thingspeak_settings(&s_settings);
-    s_settings.magic = SETTINGS_MAGIC_V22;
+    finalize_settings_v26();
     ensure_shelly_strings_null_terminated();
     save_settings();
-    ESP_LOGI(TAG, "upgraded settings v21 → v22");
+    ESP_LOGI(TAG, "upgraded settings v21 → v24");
 }
 
 static void upgrade_v20_blob(const settings_blob_v20_t *loaded)
 {
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v20_t));
-    finalize_settings_v22();
+    finalize_settings_v26();
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v20 → v21");
@@ -1233,7 +1575,7 @@ static void upgrade_v19_blob(const settings_blob_v19_t *loaded)
 {
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v19_t));
-    finalize_settings_v22();
+    finalize_settings_v26();
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v19 → v21");
@@ -1244,7 +1586,7 @@ static void upgrade_v18_blob(const settings_blob_v18_t *loaded)
     memset(&s_settings, 0, sizeof(s_settings));
     memcpy(&s_settings, loaded, sizeof(settings_blob_v18_t));
     memset(s_settings.maint_next_due_epoch, 0, sizeof(s_settings.maint_next_due_epoch));
-    finalize_settings_v22();
+    finalize_settings_v26();
     ensure_shelly_strings_null_terminated();
     save_settings();
     ESP_LOGI(TAG, "upgraded settings v18 → v21");
@@ -1407,7 +1749,7 @@ void aquapilot_settings_init(void)
     settings_blob_t loaded = {0};
     size_t size = sizeof(loaded);
     esp_err_t err = aquapilot_nvs_get_blob(NVS_KEY, &loaded, &size);
-    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V22) {
+    if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V26) {
         s_settings = loaded;
         ensure_shelly_strings_null_terminated();
         s_settings.shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX] = '\0';
@@ -1416,8 +1758,40 @@ void aquapilot_settings_init(void)
         float min_f = 0.0f;
         float max_f = 0.0f;
         compute_temp_range(&min_f, &max_f);
-        ESP_LOGI(TAG, "loaded settings v22 (setpoint %.1f F, range %.1f–%.1f F, tz %s)", effective_setpoint_f(), min_f,
+        ESP_LOGI(TAG, "loaded settings v26 (setpoint %.1f F, range %.1f–%.1f F, tz %s)", effective_setpoint_f(), min_f,
                  max_f, s_settings.timezone);
+        return;
+    }
+
+    settings_blob_v25_t loaded_v25 = {0};
+    size_t v25_size = sizeof(loaded_v25);
+    esp_err_t v25_err = aquapilot_nvs_get_blob(NVS_KEY, &loaded_v25, &v25_size);
+    if (v25_err == ESP_OK && v25_size == sizeof(loaded_v25) && loaded_v25.magic == SETTINGS_MAGIC_V25) {
+        upgrade_v25_blob(&loaded_v25);
+        return;
+    }
+
+    settings_blob_v24_t loaded_v24 = {0};
+    size_t v24_size = sizeof(loaded_v24);
+    esp_err_t v24_err = aquapilot_nvs_get_blob(NVS_KEY, &loaded_v24, &v24_size);
+    if (v24_err == ESP_OK && v24_size == sizeof(loaded_v24) && loaded_v24.magic == SETTINGS_MAGIC_V24) {
+        upgrade_v24_blob(&loaded_v24);
+        return;
+    }
+
+    settings_blob_v23_t loaded_v23 = {0};
+    size_t v23_size = sizeof(loaded_v23);
+    esp_err_t v23_err = aquapilot_nvs_get_blob(NVS_KEY, &loaded_v23, &v23_size);
+    if (v23_err == ESP_OK && v23_size == sizeof(loaded_v23) && loaded_v23.magic == SETTINGS_MAGIC_V23) {
+        upgrade_v23_blob(&loaded_v23);
+        return;
+    }
+
+    settings_blob_v22_t loaded_v22 = {0};
+    size_t v22_size = sizeof(loaded_v22);
+    esp_err_t v22_err = aquapilot_nvs_get_blob(NVS_KEY, &loaded_v22, &v22_size);
+    if (v22_err == ESP_OK && v22_size == sizeof(loaded_v22) && loaded_v22.magic == SETTINGS_MAGIC_V22) {
+        upgrade_v22_blob(&loaded_v22);
         return;
     }
 
@@ -1457,7 +1831,7 @@ void aquapilot_settings_init(void)
     if (err == ESP_OK && size == sizeof(loaded) && loaded.magic == SETTINGS_MAGIC_V17) {
         s_settings = loaded;
         memset(s_settings.maint_next_due_epoch, 0, sizeof(s_settings.maint_next_due_epoch));
-        finalize_settings_v22();
+        finalize_settings_v26();
         ensure_shelly_strings_null_terminated();
         s_settings.shelly_password[AQUAPILOT_SHELLY_PASSWORD_MAX] = '\0';
         save_settings();
@@ -1679,6 +2053,79 @@ bool aquapilot_settings_set_co2_schedule(uint8_t on_h, uint8_t on_m, uint8_t off
     return save_settings();
 }
 
+bool aquapilot_settings_get_co2_injection_enabled(bool *enabled)
+{
+    if (enabled == NULL) {
+        return false;
+    }
+    *enabled = s_settings.co2_injection_enabled != 0;
+    return true;
+}
+
+bool aquapilot_settings_set_co2_injection_enabled(bool enabled)
+{
+    s_settings.co2_injection_enabled = enabled ? 1 : 0;
+    ESP_LOGI(TAG, "CO2 injection %s", enabled ? "enabled" : "disabled");
+    return save_settings();
+}
+
+bool aquapilot_settings_get_co2_air_simultaneous(bool *enabled)
+{
+    if (enabled == NULL) {
+        return false;
+    }
+    *enabled = s_settings.co2_air_simultaneous != 0;
+    return true;
+}
+
+bool aquapilot_settings_set_co2_air_simultaneous(bool enabled)
+{
+    s_settings.co2_air_simultaneous = enabled ? 1 : 0;
+    ESP_LOGI(TAG, "CO2/air simultaneous %s", enabled ? "enabled" : "disabled");
+    return save_settings();
+}
+
+bool aquapilot_settings_get_air_pump_enabled(bool *enabled)
+{
+    if (enabled == NULL) {
+        return false;
+    }
+    *enabled = s_settings.air_pump_enabled != 0;
+    return true;
+}
+
+bool aquapilot_settings_set_air_pump_enabled(bool enabled)
+{
+    s_settings.air_pump_enabled = enabled ? 1 : 0;
+    ESP_LOGI(TAG, "air pump %s", enabled ? "enabled" : "disabled");
+    return save_settings();
+}
+
+bool aquapilot_settings_get_air_schedule(uint8_t *on_h, uint8_t *on_m, uint8_t *off_h, uint8_t *off_m)
+{
+    if (on_h == NULL || on_m == NULL || off_h == NULL || off_m == NULL) {
+        return false;
+    }
+    *on_h = s_settings.air_on_h;
+    *on_m = s_settings.air_on_m;
+    *off_h = s_settings.air_off_h;
+    *off_m = s_settings.air_off_m;
+    return true;
+}
+
+bool aquapilot_settings_set_air_schedule(uint8_t on_h, uint8_t on_m, uint8_t off_h, uint8_t off_m)
+{
+    if (on_h > 23 || off_h > 23 || on_m > 59 || off_m > 59) {
+        return false;
+    }
+    s_settings.air_on_h = on_h;
+    s_settings.air_on_m = on_m;
+    s_settings.air_off_h = off_h;
+    s_settings.air_off_m = off_m;
+    ESP_LOGI(TAG, "air schedule %02u:%02u – %02u:%02u", on_h, on_m, off_h, off_m);
+    return save_settings();
+}
+
 bool aquapilot_settings_get_filter_calibrated(bool *calibrated)
 {
     if (calibrated == NULL) {
@@ -1820,18 +2267,21 @@ bool aquapilot_settings_set_shelly_address(aquapilot_shelly_plug_t plug, const c
     return save_settings();
 }
 
-bool aquapilot_settings_set_shelly_addresses(const char *heater, const char *filter, const char *co2)
+bool aquapilot_settings_set_shelly_addresses(const char *heater, const char *filter, const char *co2,
+                                             const char *air)
 {
     char norm_heater[SHELLY_ADDR_LEN];
     char norm_filter[SHELLY_ADDR_LEN];
     char norm_co2[SHELLY_ADDR_LEN];
+    char norm_air[SHELLY_ADDR_LEN];
 
     normalize_shelly_address(heater, norm_heater, sizeof(norm_heater));
     normalize_shelly_address(filter, norm_filter, sizeof(norm_filter));
     normalize_shelly_address(co2, norm_co2, sizeof(norm_co2));
+    normalize_shelly_address(air, norm_air, sizeof(norm_air));
 
     if (!shelly_address_valid(norm_heater) || !shelly_address_valid(norm_filter) ||
-        !shelly_address_valid(norm_co2)) {
+        !shelly_address_valid(norm_co2) || !shelly_address_valid(norm_air)) {
         return false;
     }
 
@@ -1841,8 +2291,10 @@ bool aquapilot_settings_set_shelly_addresses(const char *heater, const char *fil
     s_settings.shelly_filter[SHELLY_ADDR_LEN - 1] = '\0';
     strncpy(s_settings.shelly_co2, norm_co2, SHELLY_ADDR_LEN - 1);
     s_settings.shelly_co2[SHELLY_ADDR_LEN - 1] = '\0';
-    ESP_LOGI(TAG, "shelly addresses heater=\"%s\" filter=\"%s\" co2=\"%s\"", s_settings.shelly_heater,
-             s_settings.shelly_filter, s_settings.shelly_co2);
+    strncpy(s_settings.shelly_air, norm_air, SHELLY_ADDR_LEN - 1);
+    s_settings.shelly_air[SHELLY_ADDR_LEN - 1] = '\0';
+    ESP_LOGI(TAG, "shelly addresses heater=\"%s\" filter=\"%s\" co2=\"%s\" air=\"%s\"", s_settings.shelly_heater,
+             s_settings.shelly_filter, s_settings.shelly_co2, s_settings.shelly_air);
     return save_settings();
 }
 
@@ -1921,6 +2373,22 @@ bool aquapilot_settings_set_heater_shelly_power_monitor_enabled(bool enabled)
 {
     s_settings.heater_shelly_power_monitor_enabled = enabled ? 1 : 0;
     ESP_LOGI(TAG, "heater shelly power monitor %s", enabled ? "enabled" : "disabled");
+    return save_settings();
+}
+
+bool aquapilot_settings_get_air_power_monitor_enabled(bool *enabled)
+{
+    if (enabled == NULL) {
+        return false;
+    }
+    *enabled = s_settings.air_power_monitor_enabled != 0;
+    return true;
+}
+
+bool aquapilot_settings_set_air_power_monitor_enabled(bool enabled)
+{
+    s_settings.air_power_monitor_enabled = enabled ? 1 : 0;
+    ESP_LOGI(TAG, "air power monitor %s", enabled ? "enabled" : "disabled");
     return save_settings();
 }
 
@@ -2255,7 +2723,7 @@ static bool thingspeak_interval_valid(uint16_t interval_min)
 
 static bool thingspeak_metric_valid(aquapilot_ts_metric_t metric)
 {
-    return metric <= AQUAPILOT_TS_METRIC_FEED_STATUS;
+    return metric <= AQUAPILOT_TS_METRIC_AIR_W;
 }
 
 static bool thingspeak_api_key_valid(const char *key)

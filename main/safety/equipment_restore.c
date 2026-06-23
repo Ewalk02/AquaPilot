@@ -12,6 +12,7 @@
 #include "safety/filter_calibration.h"
 #include "safety/heater_override.h"
 #include "safety/maintenance_mode.h"
+#include "schedule/air_schedule.h"
 #include "schedule/co2_automation.h"
 #include "schedule/co2_schedule.h"
 #include "storage/aquapilot_settings.h"
@@ -40,6 +41,8 @@ static const char *plug_label(aquapilot_shelly_plug_t plug)
         return "filter";
     case AQUAPILOT_SHELLY_CO2:
         return "co2";
+    case AQUAPILOT_SHELLY_AIR:
+        return "air";
     default:
         return "unknown";
     }
@@ -70,6 +73,20 @@ static bool co2_desired_state(bool *out_desired)
     }
 
     *out_desired = co2_schedule_is_injection_active();
+    return true;
+}
+
+static bool air_desired_state(bool *out_desired)
+{
+    if (out_desired == NULL) {
+        return false;
+    }
+
+    if (!air_schedule_clock_ready()) {
+        return false;
+    }
+
+    *out_desired = air_schedule_desired_plug_on();
     return true;
 }
 
@@ -243,6 +260,21 @@ bool equipment_apply_normal_state(equipment_status_cb_t status_cb, bool use_step
             all_ok = false;
         }
     } else if (aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_CO2)) {
+        all_ok = false;
+    }
+    delay_step(use_step_delays);
+
+    bool air_on = false;
+    if (air_desired_state(&air_on)) {
+        if (air_on) {
+            notify_status(status_cb, "Turning on air pump plug (schedule active)...");
+        } else {
+            notify_status(status_cb, "Air pump plug off (outside schedule)...");
+        }
+        if (!equipment_set_plug_desired(AQUAPILOT_SHELLY_AIR, air_on)) {
+            all_ok = false;
+        }
+    } else if (aquapilot_settings_has_shelly_address(AQUAPILOT_SHELLY_AIR)) {
         all_ok = false;
     }
     delay_step(use_step_delays);

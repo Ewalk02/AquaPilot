@@ -1,25 +1,34 @@
 #include "tile_co2_status.h"
 
 #include "esp_timer.h"
+#include "safety/air_power_monitor.h"
 #include "safety/co2_power_monitor.h"
+#include "schedule/air_schedule.h"
 #include "schedule/co2_schedule.h"
+#include "storage/aquapilot_settings.h"
 #include "tile_common.h"
 
 #include <stdio.h>
 
-#define TILE_TITLE_COLOR      0x8B949E
-#define TILE_VALUE_COLOR      0xE6EDF3
-#define TILE_VALUE_ON         0x3FB950
-#define TILE_STATUS_COLOR     0x6E7681
-#define TILE_DEFAULT_BG       0x161B22
-#define TILE_DEFAULT_BORDER   0x30363D
-#define TILE_ON_BG            0x13261B
-#define TILE_ON_BORDER        0x3FB950
-#define TILE_ALARM_BG         0x3D0A0A
-#define TILE_ALARM_BORDER     0xFF4444
-#define TILE_ALARM_TEXT       0xFFCCCC
-#define TILE_WARN_WATTS_COLOR 0xFFAA44
-#define ALARM_FLASH_PERIOD_US 500000ULL
+#define TILE_TITLE_COLOR        0x8B949E
+#define TILE_VALUE_COLOR        0xE6EDF3
+#define TILE_VALUE_ON           0x3FB950
+#define TILE_STATUS_COLOR       0x6E7681
+#define TILE_DEFAULT_BG         0x161B22
+#define TILE_DEFAULT_BORDER     0x30363D
+#define TILE_ON_BG              0x13261B
+#define TILE_ON_BORDER          0x3FB950
+#define TILE_ALARM_BG           0x3D0A0A
+#define TILE_ALARM_BORDER       0xFF4444
+#define TILE_ALARM_TEXT         0xFFCCCC
+#define ALARM_FLASH_PERIOD_US   500000ULL
+
+typedef enum {
+    GAS_TILE_OFF = 0,
+    GAS_TILE_CO2_ON,
+    GAS_TILE_AIR_ON,
+    GAS_TILE_BOTH_ON,
+} gas_tile_state_t;
 
 static void apply_panel_colors(lv_obj_t *root, uint32_t bg, uint32_t border)
 {
@@ -62,6 +71,93 @@ static void set_label_hidden(lv_obj_t *label, bool hidden)
     }
 }
 
+static gas_tile_state_t gas_tile_state(void)
+{
+    const bool co2_on = co2_schedule_is_injection_active();
+    const bool air_on = air_schedule_desired_plug_on();
+
+    bool simultaneous = false;
+    aquapilot_settings_get_co2_air_simultaneous(&simultaneous);
+
+    if (co2_on && air_on && simultaneous) {
+        return GAS_TILE_BOTH_ON;
+    }
+
+    if (co2_on) {
+        return GAS_TILE_CO2_ON;
+    }
+
+    if (air_on) {
+        return GAS_TILE_AIR_ON;
+    }
+
+    return GAS_TILE_OFF;
+}
+
+static bool gas_tile_alarm_active(const char **message_out)
+{
+    if (co2_power_monitor_alarm_active()) {
+        if (message_out != NULL) {
+            *message_out = "CO2 on but not\ndrawing power";
+        }
+        return true;
+    }
+
+    if (co2_power_monitor_off_leak_alarm_active()) {
+        if (message_out != NULL) {
+            *message_out = "CO2 should be off\nbut drawing power";
+        }
+        return true;
+    }
+
+    if (air_power_monitor_alarm_active()) {
+        if (message_out != NULL) {
+            *message_out = "Air on but not\ndrawing power";
+        }
+        return true;
+    }
+
+    if (air_power_monitor_off_leak_alarm_active()) {
+        if (message_out != NULL) {
+            *message_out = "Air should be off\nbut drawing power";
+        }
+        return true;
+    }
+
+    return false;
+}
+
+static const char *state_label(gas_tile_state_t state)
+{
+    switch (state) {
+    case GAS_TILE_CO2_ON:
+        return "CO2 ON";
+    case GAS_TILE_AIR_ON:
+        return "AIR ON";
+    case GAS_TILE_BOTH_ON:
+        return "BOTH ON";
+    default:
+        return "OFF";
+    }
+}
+
+static bool read_display_watts(gas_tile_state_t state, uint16_t *watts_out)
+{
+    if (watts_out == NULL) {
+        return false;
+    }
+
+    if (state == GAS_TILE_CO2_ON || state == GAS_TILE_BOTH_ON) {
+        return co2_power_monitor_get_watts(watts_out);
+    }
+
+    if (state == GAS_TILE_AIR_ON) {
+        return air_power_monitor_get_watts(watts_out);
+    }
+
+    return false;
+}
+
 tile_co2_status_t tile_co2_status_create(lv_obj_t *parent)
 {
     tile_co2_status_t tile = {0};
@@ -75,7 +171,7 @@ tile_co2_status_t tile_co2_status_create(lv_obj_t *parent)
     lv_obj_remove_flag(tile.root, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(tile.root);
-    lv_label_set_text(title, "CO2 Status");
+    lv_label_set_text(title, "Air Status");
     lv_obj_set_style_text_color(title, lv_color_hex(TILE_TITLE_COLOR), 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
 
@@ -103,47 +199,40 @@ void tile_co2_status_update(tile_co2_status_t *tile)
         return;
     }
 
-    const bool active = co2_schedule_is_injection_active();
-    const bool on_no_power_alarm = co2_power_monitor_alarm_active();
-    const bool off_leak_alarm = co2_power_monitor_off_leak_alarm_active();
+    const gas_tile_state_t state = gas_tile_state();
+    const char *alarm_message = NULL;
+    const bool alarm = gas_tile_alarm_active(&alarm_message);
 
-    if (on_no_power_alarm) {
-        tile_show_alarm_message(tile->value_label, "CO2 on but not\ndrawing power", TILE_ALARM_TEXT);
-        set_label_hidden(tile->watts_label, true);
-        set_label_hidden(tile->status_label, true);
-    } else if (off_leak_alarm) {
-        tile_show_alarm_message(tile->value_label, "CO2 should be off\nbut drawing power", TILE_ALARM_TEXT);
+    if (alarm && alarm_message != NULL) {
+        tile_show_alarm_message(tile->value_label, alarm_message, TILE_ALARM_TEXT);
         set_label_hidden(tile->watts_label, true);
         set_label_hidden(tile->status_label, true);
     } else {
+        const bool active = state != GAS_TILE_OFF;
         tile_restore_value_label(tile->value_label, active ? TILE_VALUE_ON : TILE_VALUE_COLOR);
-        lv_label_set_text(tile->value_label, active ? "ON" : "OFF");
+        lv_label_set_text(tile->value_label, state_label(state));
         set_label_hidden(tile->watts_label, false);
 
         if (tile->watts_label != NULL) {
             char watts_buf[16];
             uint16_t watts = 0;
-            const bool has_watts = co2_power_monitor_get_watts(&watts);
-            if (has_watts) {
+            if (read_display_watts(state, &watts)) {
                 snprintf(watts_buf, sizeof(watts_buf), "%u W", (unsigned)watts);
             } else {
                 snprintf(watts_buf, sizeof(watts_buf), "-- W");
             }
             lv_label_set_text(tile->watts_label, watts_buf);
-            const bool watts_warning =
-                !active && has_watts && watts >= CO2_OFF_LEAK_WATTS_THRESHOLD;
-            lv_obj_set_style_text_color(tile->watts_label,
-                                        lv_color_hex(watts_warning ? TILE_WARN_WATTS_COLOR : TILE_STATUS_COLOR), 0);
+            lv_obj_set_style_text_color(tile->watts_label, lv_color_hex(TILE_STATUS_COLOR), 0);
         }
 
         set_label_hidden(tile->status_label, true);
     }
 
     if (tile->root != NULL) {
-        if (on_no_power_alarm || off_leak_alarm) {
+        if (alarm) {
             const bool flash_on = (esp_timer_get_time() / ALARM_FLASH_PERIOD_US) % 2 == 0;
             apply_alarm_style(tile->root, flash_on);
-        } else if (active) {
+        } else if (state != GAS_TILE_OFF) {
             apply_on_style(tile->root);
         } else {
             apply_off_style(tile->root);
@@ -153,5 +242,5 @@ void tile_co2_status_update(tile_co2_status_t *tile)
 
 bool tile_co2_status_needs_fast_update(void)
 {
-    return co2_power_monitor_alarm_active() || co2_power_monitor_off_leak_alarm_active();
+    return gas_tile_alarm_active(NULL);
 }

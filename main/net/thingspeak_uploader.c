@@ -7,6 +7,7 @@
 #include "freertos/task.h"
 #include "heater/heater_service.h"
 #include "net/wifi_manager.h"
+#include "safety/air_power_monitor.h"
 #include "safety/co2_power_monitor.h"
 #include "safety/filter_power_monitor.h"
 #include "schedule/aquapilot_time.h"
@@ -94,6 +95,14 @@ static bool metric_value_ready(aquapilot_ts_metric_t metric, double *out_value)
             return false;
         }
         *out_value = success ? 1.0 : 0.0;
+        return true;
+    }
+    case AQUAPILOT_TS_METRIC_AIR_W: {
+        uint16_t watts = 0;
+        if (!air_power_monitor_get_watts(&watts)) {
+            return false;
+        }
+        *out_value = (double)watts;
         return true;
     }
     default:

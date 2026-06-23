@@ -172,7 +172,7 @@ static void freq_focus_cb(lv_event_t *e)
     if (ta == s_add_name_ta) {
         lv_keyboard_set_mode(s_keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
     } else {
-        lv_keyboard_set_mode(s_keyboard, LV_KEYBOARD_MODE_USER_1);
+        lv_keyboard_set_mode(s_keyboard, LV_KEYBOARD_MODE_USER_2);
     }
 
     lv_keyboard_set_textarea(s_keyboard, ta);
@@ -830,7 +830,7 @@ void screen_maintenance_track_create(void)
     create_add_dialog(s_screen);
 
     s_keyboard = lv_keyboard_create(s_screen);
-    lv_keyboard_set_map(s_keyboard, LV_KEYBOARD_MODE_USER_1, s_days_kb_map, s_days_kb_ctrl);
+    lv_keyboard_set_map(s_keyboard, LV_KEYBOARD_MODE_USER_2, s_days_kb_map, s_days_kb_ctrl);
     style_maint_keyboard(s_keyboard);
     lv_obj_add_flag(s_keyboard, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_keyboard, LV_OBJ_FLAG_FLOATING);

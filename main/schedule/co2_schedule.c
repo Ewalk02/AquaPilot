@@ -102,6 +102,11 @@ bool co2_schedule_clock_ready(void)
 
 bool co2_schedule_is_injection_active(void)
 {
+    bool enabled = false;
+    if (!aquapilot_settings_get_co2_injection_enabled(&enabled) || !enabled) {
+        return false;
+    }
+
     int on_min = 0;
     int off_min = 0;
     int now_min = 0;
@@ -139,6 +144,12 @@ void co2_schedule_format_countdown(char *buf, size_t len)
 
     if (!co2_schedule_clock_ready()) {
         snprintf(buf, len, "Waiting for time sync...");
+        return;
+    }
+
+    bool co2_enabled = false;
+    if (!aquapilot_settings_get_co2_injection_enabled(&co2_enabled) || !co2_enabled) {
+        snprintf(buf, len, "CO2 disabled");
         return;
     }
 

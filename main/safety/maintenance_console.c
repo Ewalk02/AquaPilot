@@ -19,6 +19,8 @@ static const char *plug_label(aquapilot_shelly_plug_t plug)
         return "filter";
     case AQUAPILOT_SHELLY_CO2:
         return "co2";
+    case AQUAPILOT_SHELLY_AIR:
+        return "air";
     default:
         return "unknown";
     }
@@ -63,6 +65,7 @@ static int cmd_maint_status(int argc, char **argv)
     printf("status=%s\n", maintenance_mode_status_text());
     print_plug_relay(AQUAPILOT_SHELLY_FILTER);
     print_plug_relay(AQUAPILOT_SHELLY_CO2);
+    print_plug_relay(AQUAPILOT_SHELLY_AIR);
     print_plug_relay(AQUAPILOT_SHELLY_HEATER);
     return 0;
 }

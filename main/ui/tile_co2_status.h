@@ -12,5 +12,5 @@ typedef struct {
 tile_co2_status_t tile_co2_status_create(lv_obj_t *parent);
 void tile_co2_status_update(tile_co2_status_t *tile);
 
-/** True while CO2 power alarm is active (use faster dashboard refresh). */
+/** True while a CO2 or air power alarm is active (use faster dashboard refresh). */
 bool tile_co2_status_needs_fast_update(void);

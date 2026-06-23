@@ -30,7 +30,8 @@ static const char *const s_metric_options =
     "Temperature (F)\n"
     "Filter Power (W)\n"
     "CO2 Power (W)\n"
-    "Feed Status";
+    "Feed Status\n"
+    "Air Pump Power (W)";
 
 static const char *const s_interval_options =
     "Off\n"
@@ -178,6 +179,8 @@ static uint32_t metric_to_dropdown_index(aquapilot_ts_metric_t metric)
         return 3;
     case AQUAPILOT_TS_METRIC_FEED_STATUS:
         return 4;
+    case AQUAPILOT_TS_METRIC_AIR_W:
+        return 5;
     default:
         return 0;
     }
@@ -194,6 +197,8 @@ static aquapilot_ts_metric_t dropdown_index_to_metric(uint32_t index)
         return AQUAPILOT_TS_METRIC_CO2_W;
     case 4:
         return AQUAPILOT_TS_METRIC_FEED_STATUS;
+    case 5:
+        return AQUAPILOT_TS_METRIC_AIR_W;
     default:
         return AQUAPILOT_TS_METRIC_NONE;
     }

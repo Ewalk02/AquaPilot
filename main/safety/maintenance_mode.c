@@ -56,6 +56,10 @@ static void run_enable_sequence(void)
     (void)shelly_set_if_configured(AQUAPILOT_SHELLY_CO2, false);
     delay_step();
 
+    set_status("Turning off air pump plug...");
+    (void)shelly_set_if_configured(AQUAPILOT_SHELLY_AIR, false);
+    delay_step();
+
     set_status("Turning off filter plug...");
     (void)shelly_set_if_configured(AQUAPILOT_SHELLY_FILTER, false);
     set_status("Maintenance mode active");
