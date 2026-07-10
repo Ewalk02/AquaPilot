@@ -487,6 +487,7 @@ void screen_thingspeak_create(void)
     lv_obj_set_style_text_color(s_status_label, lv_color_hex(STATUS_COLOR), 0);
     lv_obj_set_style_text_font(s_status_label, &lv_font_montserrat_16, 0);
     lv_obj_set_width(s_status_label, LV_PCT(100));
+    lv_label_set_long_mode(s_status_label, LV_LABEL_LONG_WRAP);
 
     lv_obj_t *section = lv_label_create(form);
     lv_label_set_text(section, "Fields 1-8");

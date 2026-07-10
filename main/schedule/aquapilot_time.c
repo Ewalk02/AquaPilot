@@ -11,6 +11,7 @@
 #include "esp_sntp.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "net/thingspeak_uploader.h"
 #include "net/wifi_manager.h"
 #include "storage/aquapilot_settings.h"
 
@@ -18,9 +19,11 @@ static const char *TAG = "time";
 
 #define MIN_VALID_EPOCH 1700000000L
 #define SNTP_RETRY_MS   30000
+#define CLOCK_STEP_BACK_THRESHOLD_S 5
 
 static bool s_sntp_started;
 static bool s_sync_task_started;
+static time_t s_last_sync_epoch;
 
 static void apply_timezone(void)
 {
@@ -39,7 +42,14 @@ static void on_time_sync(struct timeval *tv)
         return;
     }
 
-    ESP_LOGI(TAG, "SNTP sync OK (epoch %lld)", (long long)tv->tv_sec);
+    const time_t new_epoch = tv->tv_sec;
+    if (s_last_sync_epoch > 0 && new_epoch < s_last_sync_epoch - CLOCK_STEP_BACK_THRESHOLD_S) {
+        ESP_LOGW(TAG, "clock stepped back %lld s", (long long)(s_last_sync_epoch - new_epoch));
+        thingspeak_uploader_on_clock_step();
+    }
+    s_last_sync_epoch = new_epoch;
+
+    ESP_LOGI(TAG, "SNTP sync OK (epoch %lld)", (long long)new_epoch);
 }
 
 static void stop_sntp(void)
